@@ -423,18 +423,18 @@ def main(subset='train', do_aug=False):
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvchangmianxiann66-n68.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann39-n42.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann64-n65.tif',
-        '/media/ubuntu/Working/rs/guangdong_aerial/aerial2/威华300m_mosaic.tif',
+        '/media/ubuntu/Working/rs/guangdong_aerial/aerial/威华300m_mosaic.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kv厂梅线13-14（杆塔、导线、绝缘子、树木）.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kv长顺线N51-N55_0.05m_杆塔、导线、绝缘子、树木.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/云南玉溪（杆塔、导线、树木、水体）.tif',
-        '/media/ubuntu/Working/rs/guangdong_aerial/aerial2/工业园350m_mosaic.tif',
+        '/media/ubuntu/Working/rs/guangdong_aerial/aerial/工业园350m_mosaic.tif',
     ]
     val_list = [
-        '/media/ubuntu/Working/rs/guangdong_aerial/aerial2/候村250m_mosaic.tif',
-        '/media/ubuntu/Working/rs/guangdong_aerial/aerial2/水口300m_mosaic.tif',
+        '/media/ubuntu/Working/rs/guangdong_aerial/aerial/候村250m_mosaic.tif',
+        '/media/ubuntu/Working/rs/guangdong_aerial/aerial/水口300m_mosaic.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvchangmianxiann74-n82.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann70-n71.tif',
-        '/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv苏隆线N3-N10（杆塔、导线、绝缘子、树木）.tif',
+        # '/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv苏隆线N3-N10（杆塔、导线、绝缘子、树木）.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann53-n541.tif',
     ]
 
