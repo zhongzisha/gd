@@ -1,19 +1,23 @@
-import sys, os, glob
+
+import sys,os,glob,shutil
 
 sys.path.insert(0, 'F:/gd/yoloV5/')
 
 import cv2
+from PIL import Image
+from osgeo import gdal, osr
+from pathlib import Path
+from natsort import natsorted
+import argparse
+import psutil  # 获取可用内存
 import numpy as np
 import torch
-from osgeo import gdal, osr
-from natsort import natsorted
-from myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms
+from myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, \
+    compute_offsets, save_predictions_to_envi_xml, LoadImages
 from utils.general import xyxy2xywh, xywh2xyxy, box_iou
 
 """
-从大图检测的结果，对于每个大图像a.tif都会保存a.tif, a.xml, a_all_preds.pt
-其中，a.xml是经过了nms的all_preds, a_all_preds.pt是没有经过nms的.
-a.xml是ENVI格式的ROI文件。
+从*_gt_5.xml标注文件中提取第5类标签，提取image patches进行块分类
 """
 
 
@@ -34,7 +38,7 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info):
     # 每个类进行nms
     tmp_boxes = []
     tmp_labels = []
-    for label in [1, 2]:
+    for label in [1, 2, 3, 4, 5]:
         idx = np.where(all_boxes[:, 4] == label)[0]
         if len(idx) > 0:
             boxes_thisclass = all_boxes[idx, :4]
@@ -52,18 +56,11 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info):
 
 def main(subset='train'):
     source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
-    if subset == 'train':
-        pred_dir = 'E:/detect_outputs_yolov5x_640_train'
-    elif subset == 'val':
-        pred_dir = 'E:/detect_outputs_yolov5x_640_val_conf0.1'  # sys.argv[2]
-    gt_dir = 'E:/gd_gt'  # sys.argv[2]
-    save_root = 'E:/patches/%s' % (subset)
+    gt_dir = 'E:/gddata/aerial'    # *_gt_5.xml保存在这个目录下了
+    save_root = 'E:/line_patches_gt/%s' % (subset)
     if not os.path.exists(save_root):
-        os.makedirs(save_root)
-    for n in ['pos', 'neg']:
-        save_dir = os.path.join(save_root, n)
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
+        os.makedirs(save_root + "/line")
+        os.makedirs(save_root + "/nonline")
 
     tiffiles = None
     if os.path.isfile(source) and source[-4:] == '.txt':
@@ -72,6 +69,9 @@ def main(subset='train'):
     else:
         tiffiles = natsorted(glob.glob(source + '/*.tif'))
     print(tiffiles)
+
+    big_subsize = 10240
+    gt_gap = 128
 
     lines = []
 
@@ -103,50 +103,71 @@ def main(subset='train'):
             print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
             print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
 
-        pred_filename = os.path.join(pred_dir, file_prefix + '_all_preds.pt')
-        if not os.path.exists(pred_filename):
-            continue
-
         gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
-        gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_new.xml')
-
-        all_preds = torch.load(pred_filename).cpu()
-        tmp_preds = []
-        all_preds_cpu = all_preds.numpy()
-        for label in [0, 1]:
-            idx = np.where(all_preds_cpu[:, 5] == label)[0]
-            if len(idx) > 0:
-                # if label == 0:
-                #     pw = all_preds_cpu[idx, 2] - all_preds_cpu[idx, 0]
-                #     ph = all_preds_cpu[idx, 3] - all_preds_cpu[idx, 1]
-                #     inds = np.where((pw >= 100) | (ph >= 100))[0]
-                #     valid_inds = idx[inds]
-                # elif label == 1:
-                #     pw = all_preds_cpu[idx, 2] - all_preds_cpu[idx, 0]
-                #     ph = all_preds_cpu[idx, 3] - all_preds_cpu[idx, 1]
-                #     inds = np.where((pw < 100) & (ph < 100))[0]
-                #     valid_inds = idx[inds]
-                valid_inds = idx
-                dets = all_preds_cpu[valid_inds, :5]
-                keep = py_cpu_nms(dets, thresh=0.5)
-                tmp_preds.append(all_preds[valid_inds[keep]])
-        all_preds = torch.cat(tmp_preds)
-        boxes, scores, labels = all_preds[:, :4], all_preds[:, 4], all_preds[:, 5] + 1
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
 
         gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform)
         gt_boxes = torch.from_numpy(gt_boxes)
         gt_labels = torch.from_numpy(gt_labels)
-        gt_scores = torch.ones_like(gt_labels, dtype=scores.dtype)
+        print(len(gt_boxes), len(gt_labels))
 
-        print('number of boxes: ', len(boxes))
-        print('number of gt boxes: ', len(gt_boxes))
+        if len(gt_boxes) == 0:
+            continue
+
+        offsets = compute_offsets(height=orig_height, width=orig_width, subsize=big_subsize, gap=2 * gt_gap)
+        print('offsets: ', offsets)
+
+        # 在图片中随机采样一些点
+        random_indices_y = []
+        random_indices_x = []
+        for oi, (xoffset, yoffset, sub_width, sub_height) in enumerate(offsets):  # left, up
+            # sub_width = min(orig_width, big_subsize)
+            # sub_height = min(orig_height, big_subsize)
+            # if xoffset + sub_width > orig_width:
+            #     sub_width = orig_width - xoffset
+            # if yoffset + sub_height > orig_height:
+            #     sub_height = orig_height - yoffset
+
+            print('processing sub image %d' % oi, xoffset, yoffset, sub_width, sub_height)
+            img0 = np.zeros((sub_height, sub_width, 3), dtype=np.uint8)  # RGB format
+            for b in range(3):
+                band = ds.GetRasterBand(b + 1)
+                img0[:, :, b] = band.ReadAsArray(xoffset, yoffset, win_xsize=sub_width, win_ysize=sub_height)
+            img0_sum = np.sum(img0, axis=2)
+            indices_y, indices_x = np.where(img0_sum > 0)
+            inds = np.arange(len(indices_x))
+            np.random.shuffle(inds)
+            count = min(256, len(inds))
+            random_indices_y.append(indices_y[inds[:count]] + yoffset)
+            random_indices_x.append(indices_x[inds[:count]] + xoffset)
+
+            del img0, img0_sum, indices_y, indices_x
+
+        random_indices_y = np.concatenate(random_indices_y).reshape(-1, 1)
+        random_indices_x = np.concatenate(random_indices_x).reshape(-1, 1)
+        print(random_indices_y.shape, random_indices_x.shape)
+        print(random_indices_y[:10])
+        print(random_indices_x[:10])
+
+        # mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
+        # for box, label in zip(gt_boxes, gt_labels):
+        #     if label == 5:
+        #         xmin, ymin, xmax, ymax = [int(x) for x in box]
+        #         mask[ymin:ymax, xmin:xmax] = 255
+        # mask_savefilename = save_root+"/"+file_prefix+".png"
+        # # cv2.imwrite(mask_savefilename, mask)
+        # cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
+
+        boxes = np.concatenate([random_indices_x - 128, random_indices_y - 128,
+                                random_indices_x + 128, random_indices_y + 128], axis=1)
+        labels = 5 * np.ones((boxes.shape[0],))
+        boxes = torch.from_numpy(boxes)
+        labels = torch.from_numpy(labels)
 
         boxes = torch.cat([boxes, gt_boxes], dim=0)
-        scores = torch.cat([scores, gt_scores], dim=0)
         labels = torch.cat([labels, gt_labels], dim=0)
 
-        assert len(boxes) == len(labels), 'check boxes'
-        assert len(gt_boxes) == len(gt_labels), 'check gt_boxes'
+        # 生成负样本boxes，随机采样整个图像，
 
         if True:
             # 提取image patches
@@ -162,15 +183,15 @@ def main(subset='train'):
             # pdb.set_trace()
 
             ims = []
-            for j, (a, score, label) in enumerate(zip(b, scores, labels)):  # per item
-                if label == 1:
+            for j, (a, label) in enumerate(zip(b, labels)):  # per item
+                if label == 5:
 
                     # 在这里区分pos和neg，设定iou阈值，与gt的iou超过阈值认为正样本，反之负样本
-                    if ious[j].max() > 0.1:
-                        save_filename = '%s/pos/%03d_%06d_%.3f.jpg' % (save_root, ti, j, score)
+                    if ious[j].max() > 0.01:
+                        save_filename = '%s/line/%03d_%010d.jpg' % (save_root, ti, j)
                         lines.append('%s 1\n' % save_filename)
                     else:
-                        save_filename = '%s/neg/%03d_%06d_%.3f.jpg' % (save_root, ti, j, score)
+                        save_filename = '%s/nonline/%03d_%010d.jpg' % (save_root, ti, j)
                         lines.append('%s 0\n' % save_filename)
 
                     cutout = []
@@ -182,6 +203,8 @@ def main(subset='train'):
                         width = orig_width - xoffset
                     if yoffset + height > orig_height:
                         height = orig_height - yoffset
+                    if width <=0 or height <=0:
+                        continue
                     for bi in range(3):
                         band = ds.GetRasterBand(bi + 1)
                         band_data = band.ReadAsArray(xoffset, yoffset, win_xsize=width, win_ysize=height)
@@ -202,5 +225,15 @@ def main(subset='train'):
 
 
 if __name__ == '__main__':
-    # main(subset='train')
-    main(subset='val')
+    main(subset='train')
+    # main(subset='val')
+
+
+
+
+
+
+
+
+
+

@@ -1,7 +1,7 @@
 import sys, os, glob
 
 
-sys.path.insert(0, 'D:/rs/gd/yoloV5/')
+sys.path.insert(0, 'F:/gd/yoloV5/')
 
 import cv2
 import numpy as np
