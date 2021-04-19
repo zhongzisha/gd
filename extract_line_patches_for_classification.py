@@ -48,8 +48,13 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info):
             keep = py_cpu_nms(dets, thresh=0.5)
             tmp_boxes.append(boxes_thisclass[keep])
             tmp_labels.append(labels_thisclass[keep])
-    gt_boxes = np.concatenate(tmp_boxes)
-    gt_labels = np.concatenate(tmp_labels)
+
+    if len(tmp_boxes) > 0:
+        gt_boxes = np.concatenate(tmp_boxes)
+        gt_labels = np.concatenate(tmp_labels)
+    else:
+        gt_boxes = []
+        gt_labels = []
 
     return gt_boxes, gt_labels
 
@@ -107,13 +112,23 @@ def main(subset='train'):
         gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
 
         gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform)
-        gt_boxes = torch.from_numpy(gt_boxes)
-        gt_labels = torch.from_numpy(gt_labels)
         print(len(gt_boxes), len(gt_labels))
 
         if len(gt_boxes) == 0:
             continue
 
+        if False:
+            mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
+            for box, label in zip(gt_boxes, gt_labels):
+                if label == 5:
+                    xmin, ymin, xmax, ymax = [int(x) for x in box]
+                    mask[ymin:ymax, xmin:xmax] = 255
+            mask_savefilename = save_root+"/"+file_prefix+".png"
+            # cv2.imwrite(mask_savefilename, mask)
+            cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
+
+        gt_boxes = torch.from_numpy(gt_boxes)
+        gt_labels = torch.from_numpy(gt_labels)
         offsets = compute_offsets(height=orig_height, width=orig_width, subsize=big_subsize, gap=2 * gt_gap)
         print('offsets: ', offsets)
 
@@ -149,15 +164,6 @@ def main(subset='train'):
         print(random_indices_y[:10])
         print(random_indices_x[:10])
 
-        # mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
-        # for box, label in zip(gt_boxes, gt_labels):
-        #     if label == 5:
-        #         xmin, ymin, xmax, ymax = [int(x) for x in box]
-        #         mask[ymin:ymax, xmin:xmax] = 255
-        # mask_savefilename = save_root+"/"+file_prefix+".png"
-        # # cv2.imwrite(mask_savefilename, mask)
-        # cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
-
         boxes = np.concatenate([random_indices_x - 128, random_indices_y - 128,
                                 random_indices_x + 128, random_indices_y + 128], axis=1)
         labels = 5 * np.ones((boxes.shape[0],))
@@ -169,7 +175,7 @@ def main(subset='train'):
 
         # 生成负样本boxes，随机采样整个图像，
 
-        if True:
+        if False:
             # 提取image patches
             # Reshape and pad cutouts
             b = xyxy2xywh(boxes[:, :4])  # boxes
