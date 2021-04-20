@@ -117,15 +117,53 @@ def main(subset='train'):
         if len(gt_boxes) == 0:
             continue
 
-        if False:
+        if True:
             mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
-            for box, label in zip(gt_boxes, gt_labels):
-                if label == 5:
-                    xmin, ymin, xmax, ymax = [int(x) for x in box]
-                    mask[ymin:ymax, xmin:xmax] = 255
-            mask_savefilename = save_root+"/"+file_prefix+".png"
+
+            if False:
+                for box, label in zip(gt_boxes, gt_labels):
+                    if label >=2:
+                        xmin, ymin, xmax, ymax = [int(x) for x in box]
+                        mask[ymin:ymax, xmin:xmax] = 255
+                mask_savefilename = save_root+"/"+file_prefix+".png"
+                # cv2.imwrite(mask_savefilename, mask)
+                cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
+
+            # 这里将线连起来，对每个框，找最近的那个框，如果最近的框在一个范围内
+            # 对这两个框求凸壳，然后fill这个凸壳，并标记框为true
+            for b1, (box1, label1) in enumerate(zip(gt_boxes, gt_labels)):
+                if label1 >= 2:
+                    xmin1, ymin1, xmax1, ymax1 = box1
+                    w1, h1 = xmax1 - xmin1, ymax1 - ymin1
+                    xc1, yc1 = (xmin1+xmax1)/2, (ymin1+ymax1)/2
+                    minDist, minBox = 1e8, None
+                    for b2, (box2, label2) in enumerate(zip(gt_boxes, gt_labels)):
+                        if b1 != b2 and label2 >= 2:
+                            xmin2, ymin2, xmax2, ymax2 = box2
+                            xc2, yc2 = (xmin2+xmax2)/2, (ymin2+ymax2)/2
+                            d = (xc1 - xc2)**2 + (yc1-yc2)**2
+                            if d < minDist:
+                                minDist = d
+                                minBox = box2
+                    minDist = np.sqrt(minDist)
+                    if minBox is not None:
+                        xmin2, ymin2, xmax2, ymax2 = minBox
+                        w2, h2 = xmax2 - xmin2, ymax2 - ymin2
+                        minw = min(w1, w2)
+                        minh = min(h1, h2)
+                        if True: # minDist < 3*minw and minDist < 3*minh:
+                            points = np.array([[xmin1, ymin1], [xmax1, ymin1],
+                                      [xmin1, ymax1], [xmax1, ymax1],
+                                      [xmin2, ymin2], [xmax2, ymin2],
+                                      [xmin2, ymax2], [xmax2, ymax2]], dtype=np.int32)
+                            hull = cv2.convexHull(points, False)
+                            # import pdb
+                            # pdb.set_trace()
+                            cv2.drawContours(mask, [hull], -1, (255, 0, 0), -1)   # 这里必须是[hull]
+            mask_savefilename = save_root + "/" + file_prefix + "_filled.png"
             # cv2.imwrite(mask_savefilename, mask)
             cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
+        continue
 
         gt_boxes = torch.from_numpy(gt_boxes)
         gt_labels = torch.from_numpy(gt_labels)
@@ -231,8 +269,8 @@ def main(subset='train'):
 
 
 if __name__ == '__main__':
-    main(subset='train')
-    # main(subset='val')
+    # main(subset='train')
+    main(subset='val')
 
 
 
