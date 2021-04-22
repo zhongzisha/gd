@@ -43,11 +43,15 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info):
         if len(idx) > 0:
             boxes_thisclass = all_boxes[idx, :4]
             labels_thisclass = all_boxes[idx, 4]
-            dets = np.concatenate([boxes_thisclass.astype(np.float32),
-                                   0.99 * np.ones_like(idx, dtype=np.float32).reshape([-1, 1])], axis=1)
-            keep = py_cpu_nms(dets, thresh=0.5)
-            tmp_boxes.append(boxes_thisclass[keep])
-            tmp_labels.append(labels_thisclass[keep])
+            if label < 5:
+                dets = np.concatenate([boxes_thisclass.astype(np.float32),
+                                       0.99 * np.ones_like(idx, dtype=np.float32).reshape([-1, 1])], axis=1)
+                keep = py_cpu_nms(dets, thresh=0.5)
+                tmp_boxes.append(boxes_thisclass[keep])
+                tmp_labels.append(labels_thisclass[keep])
+            else:
+                tmp_boxes.append(boxes_thisclass)
+                tmp_labels.append(labels_thisclass)
 
     if len(tmp_boxes) > 0:
         gt_boxes = np.concatenate(tmp_boxes)
@@ -117,10 +121,10 @@ def main(subset='train'):
         if len(gt_boxes) == 0:
             continue
 
-        if True:
+        if False:
             mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
 
-            if False:
+            if True:
                 for box, label in zip(gt_boxes, gt_labels):
                     if label >=2:
                         xmin, ymin, xmax, ymax = [int(x) for x in box]
@@ -129,41 +133,46 @@ def main(subset='train'):
                 # cv2.imwrite(mask_savefilename, mask)
                 cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
 
-            # 这里将线连起来，对每个框，找最近的那个框，如果最近的框在一个范围内
-            # 对这两个框求凸壳，然后fill这个凸壳，并标记框为true
-            for b1, (box1, label1) in enumerate(zip(gt_boxes, gt_labels)):
-                if label1 >= 2:
-                    xmin1, ymin1, xmax1, ymax1 = box1
-                    w1, h1 = xmax1 - xmin1, ymax1 - ymin1
-                    xc1, yc1 = (xmin1+xmax1)/2, (ymin1+ymax1)/2
-                    minDist, minBox = 1e8, None
-                    for b2, (box2, label2) in enumerate(zip(gt_boxes, gt_labels)):
-                        if b1 != b2 and label2 >= 2:
-                            xmin2, ymin2, xmax2, ymax2 = box2
-                            xc2, yc2 = (xmin2+xmax2)/2, (ymin2+ymax2)/2
-                            d = (xc1 - xc2)**2 + (yc1-yc2)**2
-                            if d < minDist:
-                                minDist = d
-                                minBox = box2
-                    minDist = np.sqrt(minDist)
-                    if minBox is not None:
-                        xmin2, ymin2, xmax2, ymax2 = minBox
-                        w2, h2 = xmax2 - xmin2, ymax2 - ymin2
-                        minw = min(w1, w2)
-                        minh = min(h1, h2)
-                        if True: # minDist < 3*minw and minDist < 3*minh:
-                            points = np.array([[xmin1, ymin1], [xmax1, ymin1],
-                                      [xmin1, ymax1], [xmax1, ymax1],
-                                      [xmin2, ymin2], [xmax2, ymin2],
-                                      [xmin2, ymax2], [xmax2, ymax2]], dtype=np.int32)
-                            hull = cv2.convexHull(points, False)
-                            # import pdb
-                            # pdb.set_trace()
-                            cv2.drawContours(mask, [hull], -1, (255, 0, 0), -1)   # 这里必须是[hull]
-            mask_savefilename = save_root + "/" + file_prefix + "_filled.png"
-            # cv2.imwrite(mask_savefilename, mask)
-            cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
-        continue
+            if False:
+                # 这里将线连起来，对每个框，找最近的那个框，如果最近的框在一个范围内
+                # 对这两个框求凸壳，然后fill这个凸壳，并标记框为true
+                visited = set()
+                for b1, (box1, label1) in enumerate(zip(gt_boxes, gt_labels)):
+                    if label1 >= 2:
+                        xmin1, ymin1, xmax1, ymax1 = box1
+                        w1, h1 = xmax1 - xmin1, ymax1 - ymin1
+                        xc1, yc1 = (xmin1+xmax1)/2, (ymin1+ymax1)/2
+                        minDist, minBox, minIndex = 1e8, None, -1
+                        for b2, (box2, label2) in enumerate(zip(gt_boxes, gt_labels)):
+                            if b1 != b2 and label2 >= 2 and b2 not in visited:
+                                xmin2, ymin2, xmax2, ymax2 = box2
+                                xc2, yc2 = (xmin2+xmax2)/2, (ymin2+ymax2)/2
+                                d = (xc1 - xc2)**2 + (yc1-yc2)**2
+                                if d < minDist:
+                                    minDist = d
+                                    minBox = box2
+                                    minIndex = b2
+                        minDist = np.sqrt(minDist)
+                        if minBox is not None:
+                            xmin2, ymin2, xmax2, ymax2 = minBox
+                            w2, h2 = xmax2 - xmin2, ymax2 - ymin2
+                            minw = min(w1, w2)
+                            minh = min(h1, h2)
+                            if minDist < 3*minw and minDist < 3*minh:
+                                visited.add(b1)
+                                points = np.array([[xmin1, ymin1], [xmax1, ymin1],
+                                          [xmin1, ymax1], [xmax1, ymax1],
+                                          [xmin2, ymin2], [xmax2, ymin2],
+                                          [xmin2, ymax2], [xmax2, ymax2]], dtype=np.int32)
+                                hull = cv2.convexHull(points, False)
+                                # import pdb
+                                # pdb.set_trace()
+                                cv2.drawContours(mask, [hull], -1, (255, 0, 0), -1)   # 这里必须是[hull]
+                mask_savefilename = save_root + "/" + file_prefix + "_filled.png"
+                # cv2.imwrite(mask_savefilename, mask)
+                cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
+
+        # continue
 
         gt_boxes = torch.from_numpy(gt_boxes)
         gt_labels = torch.from_numpy(gt_labels)
@@ -212,8 +221,8 @@ def main(subset='train'):
         labels = torch.cat([labels, gt_labels], dim=0)
 
         # 生成负样本boxes，随机采样整个图像，
-
-        if False:
+        # 这里应该随机平移和旋转，生成更多的图片
+        if True:
             # 提取image patches
             # Reshape and pad cutouts
             b = xyxy2xywh(boxes[:, :4])  # boxes
@@ -229,14 +238,6 @@ def main(subset='train'):
             ims = []
             for j, (a, label) in enumerate(zip(b, labels)):  # per item
                 if label == 5:
-
-                    # 在这里区分pos和neg，设定iou阈值，与gt的iou超过阈值认为正样本，反之负样本
-                    if ious[j].max() > 0.01:
-                        save_filename = '%s/line/%03d_%010d.jpg' % (save_root, ti, j)
-                        lines.append('%s 1\n' % save_filename)
-                    else:
-                        save_filename = '%s/nonline/%03d_%010d.jpg' % (save_root, ti, j)
-                        lines.append('%s 0\n' % save_filename)
 
                     cutout = []
                     xc, yc = int(a[0]), int(a[1])
@@ -256,6 +257,15 @@ def main(subset='train'):
                     cutout = np.stack(cutout, -1)  # RGB
                     # cutout = im0[i][int(a[1]):int(a[3]), int(a[0]):int(a[2])]
                     im = cv2.resize(cutout, (256, 256))  # BGR
+
+                    # 在这里区分pos和neg，设定iou阈值，与gt的iou超过阈值认为正样本，反之负样本
+                    if ious[j].max() > 0.01:
+                        save_filename = '%s/line/%03d_%010d.jpg' % (save_root, ti, j)
+                        lines.append('%s 1\n' % save_filename.replace('E:/line_patches_gt/', ''))
+                    else:
+                        save_filename = '%s/nonline/%03d_%010d.jpg' % (save_root, ti, j)
+                        lines.append('%s 0\n' % save_filename.replace('E:/line_patches_gt/', ''))
+
                     cv2.imwrite(save_filename, im)  # 不能有中文
 
                     # im = im[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
@@ -269,8 +279,8 @@ def main(subset='train'):
 
 
 if __name__ == '__main__':
-    # main(subset='train')
-    main(subset='val')
+    subset = sys.argv[1]
+    main(subset=subset)
 
 
 
