@@ -225,6 +225,12 @@ def main(subset='train'):
     source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
     gt_dir = 'E:/gddata/aerial'    # *_gt_5.xml保存在这个目录下了
     save_root = 'E:/line_seg_gt_aug'
+
+    if subset == 'train':
+        random_count = 128
+    elif subset == 'val':
+        random_count = 1
+
     images_root = save_root + "/images/%s/" % subset
     labels_root = save_root + "/annotations/%s/" % subset
     images_shown_root = save_root + "/images_shown/%s/" % subset
@@ -304,7 +310,7 @@ def main(subset='train'):
             indices_y, indices_x = np.where(img0_sum > 0)
             inds = np.arange(len(indices_x))
             np.random.shuffle(inds)
-            count = min(256, len(inds))
+            count = min(random_count, len(inds))
             random_indices_y.append(indices_y[inds[:count]] + yoffset)
             random_indices_x.append(indices_x[inds[:count]] + xoffset)
 
@@ -334,6 +340,7 @@ def main(subset='train'):
         print('extract patches from gt_boxes ...')
         # 根据gt_boxes中的框的中心点，随机采样mask图像，得到对应的xmin, ymin, xmax, ymax
         # 然后根据这个坐标得到图像和segmap
+        j = 0
         for j, (box, label) in enumerate(zip(gt_boxes, gt_labels)):
             if label != 5:
                 continue
@@ -404,9 +411,7 @@ def main(subset='train'):
                                 np.concatenate([im1, 255 * np.stack([mask1, mask1, mask1], axis=2)], axis=1))  # 不能有中文
 
         print('extract patches from random boxes ...')
-        img_idx = j+1
-        # 生成负样本boxes，随机采样整个图像，
-        # 这里应该随机平移和旋转，生成更多的图片
+        # 生成负样本boxes，随机采样整个图像，这里应该随机平移和旋转，生成更多的图片
         if True:
 
             for j, (xc, yc) in enumerate(zip(random_indices_x, random_indices_y)):  # per item
@@ -451,7 +456,7 @@ def main(subset='train'):
 
                 assert im1.shape[:2] == mask1.shape[:2]
 
-                save_prefix = '%03d_%010d_bg' % (ti, j+img_idx)
+                save_prefix = '%03d_%010d_bg' % (ti, j)
                 cv2.imwrite('%s/%s.jpg' % (images_root, save_prefix), im1)  # 不能有中文
                 cv2.imwrite('%s/%s.png' % (labels_root, save_prefix), mask1)
 

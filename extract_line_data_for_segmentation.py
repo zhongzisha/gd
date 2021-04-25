@@ -286,16 +286,20 @@ def main(subset='train'):
             continue
 
         # 首先根据标注生成mask图像，存在内存问题！！！
-        # print('generate mask ...')
-        # mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
-        # if True:
-        #     for box, label in zip(gt_boxes, gt_labels):
-        #         if label >=2:
-        #             xmin, ymin, xmax, ymax = [int(x) for x in box]
-        #             mask[ymin:ymax, xmin:xmax] = 1
-        #     # mask_savefilename = save_root+"/"+file_prefix+".png"
-        #     # cv2.imwrite(mask_savefilename, mask)
-        #     # cv2.imencode('.png', mask*255)[1].tofile(mask_savefilename)
+        print('generate mask ...')
+        mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
+        if True:
+            for box, label in zip(gt_boxes, gt_labels):
+                if label >=2:
+                    xmin, ymin, xmax, ymax = [int(x) for x in box]
+                    mask[ymin:ymax, xmin:xmax] = 255
+            mask_savefilename = save_root+"/"+file_prefix+".png"
+            # cv2.imwrite(mask_savefilename, mask)
+            cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
+
+        del mask
+        gc.collect()
+        continue
 
         print('extract patches ...')
         # 根据gt_boxes中的框的中心点，随机采样mask图像，得到对应的xmin, ymin, xmax, ymax
