@@ -226,10 +226,9 @@ def main(subset='train'):
     gt_dir = 'E:/gddata/aerial'    # *_gt_5.xml保存在这个目录下了
     save_root = 'E:/line_seg_gt_aug'
 
+    random_count = 1
     if subset == 'train':
         random_count = 128
-    elif subset == 'val':
-        random_count = 1
 
     images_root = save_root + "/images/%s/" % subset
     labels_root = save_root + "/annotations/%s/" % subset
