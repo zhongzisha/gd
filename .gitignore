@@ -10,3 +10,7 @@ M2U-Net
 mmdetection
 docs
 gd_gt*
+mmclassification
+mmsegmentation
+mmcv
+detectron2

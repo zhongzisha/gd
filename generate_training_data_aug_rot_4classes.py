@@ -1,4 +1,4 @@
-import os
+import sys,os
 from PIL import Image
 import xml.dom.minidom
 import numpy as np
@@ -392,7 +392,7 @@ def mainaaa(subset='train', do_aug=False):
         fp.writelines([line+'\n' for line in tiffiles])
 
 
-def main(subset='train', do_aug=False):
+def main(subset='train', do_aug=False, size=1024):
     all_list = [
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv南连甲乙线N45-N50_0.05m（杆塔、导线、绝缘子、树木）.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv江桂线N41-N42（含杆塔、导线、绝缘子、树木）.tif',
@@ -423,18 +423,18 @@ def main(subset='train', do_aug=False):
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvchangmianxiann66-n68.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann39-n42.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann64-n65.tif',
-        '/media/ubuntu/Working/rs/guangdong_aerial/aerial/威华300m_mosaic.tif',
+        '/media/ubuntu/Working/rs/guangdong_aerial/aerial2/威华300m_mosaic.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kv厂梅线13-14（杆塔、导线、绝缘子、树木）.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kv长顺线N51-N55_0.05m_杆塔、导线、绝缘子、树木.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/云南玉溪（杆塔、导线、树木、水体）.tif',
-        '/media/ubuntu/Working/rs/guangdong_aerial/aerial/工业园350m_mosaic.tif',
+        '/media/ubuntu/Working/rs/guangdong_aerial/aerial2/工业园350m_mosaic.tif',
     ]
     val_list = [
-        '/media/ubuntu/Working/rs/guangdong_aerial/aerial/候村250m_mosaic.tif',
-        '/media/ubuntu/Working/rs/guangdong_aerial/aerial/水口300m_mosaic.tif',
+        '/media/ubuntu/Working/rs/guangdong_aerial/aerial2/候村250m_mosaic.tif',
+        '/media/ubuntu/Working/rs/guangdong_aerial/aerial2/水口300m_mosaic.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvchangmianxiann74-n82.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann70-n71.tif',
-        # '/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv苏隆线N3-N10（杆塔、导线、绝缘子、树木）.tif',
+        '/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv苏隆线N3-N10（杆塔、导线、绝缘子、树木）.tif',
         '/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann53-n541.tif',
     ]
 
@@ -450,7 +450,7 @@ def main(subset='train', do_aug=False):
         aug_times = 2
     else:
         aug_times = 1
-    save_root = '/media/ubuntu/Data/gd_1024_aug_90_newSplit_4classes/%s/' % subset
+    save_root = '/media/ubuntu/Data/gd_%d_aug_90_newSplit_4classes/%s/' % (size, subset)
     save_img_path = '%s/images/' % save_root
     save_img_shown_path = '%s/images_shown/' % save_root
     save_txt_path = '%s/labels/' % save_root
@@ -480,6 +480,8 @@ def main(subset='train', do_aug=False):
 
     inst_count = 1
     image_id = 1
+
+    half_size = size // 2
 
     for i in range(len(tiffiles)):
         tiffile = tiffiles[i]
@@ -607,16 +609,16 @@ def main(subset='train', do_aug=False):
                     col_indices = np.random.choice(cols, min(1000, len(rows)), replace=False)
                     for nogti in range(len(row_indices)):
                         xc, yc = row_indices[nogti], col_indices[nogti]
-                        xmin = max(0, xc - 512)
-                        ymin = max(0, yc - 512)
-                        xmax = xmin + 1024
-                        ymax = ymin + 1024
+                        xmin = max(0, xc - half_size)
+                        ymin = max(0, yc - half_size)
+                        xmax = xmin + size
+                        ymax = ymin + size
                         if xmax >= width - 1:
                             xmax = width - 1
-                            xmin = xmax - 1024
+                            xmin = xmax - size
                         if ymax >= height:
                             ymax = height - 1
-                            ymin = ymax - 1024
+                            ymin = ymax - size
                         xmin = max(xmin, 0)
                         ymin = max(ymin, 0)
 
@@ -649,16 +651,16 @@ def main(subset='train', do_aug=False):
                     col_indices = np.random.choice(cols, min(1000, len(rows)), replace=False)
                     for nogti in range(len(row_indices)):
                         xc, yc = row_indices[nogti], col_indices[nogti]
-                        xmin = max(0, xc - 512)
-                        ymin = max(0, yc - 512)
-                        xmax = xmin + 1024
-                        ymax = ymin + 1024
+                        xmin = max(0, xc - half_size)
+                        ymin = max(0, yc - half_size)
+                        xmax = xmin + size
+                        ymax = ymin + size
                         if xmax >= width - 1:
                             xmax = width - 1
-                            xmin = xmax - 1024
+                            xmin = xmax - size
                         if ymax >= height:
                             ymax = height - 1
-                            ymin = ymax - 1024
+                            ymin = ymax - size
                         xmin = max(xmin, 0)
                         ymin = max(ymin, 0)
 
@@ -714,16 +716,16 @@ def main(subset='train', do_aug=False):
                             xc += xshift
                             yc += yshift
 
-                        xmin = max(0, xc - 512)
-                        ymin = max(0, yc - 512)
-                        xmax = xmin + 1024
-                        ymax = ymin + 1024
+                        xmin = max(0, xc - half_size)
+                        ymin = max(0, yc - half_size)
+                        xmax = xmin + size
+                        ymax = ymin + size
                         if xmax >= width - 1:
                             xmax = width - 1
-                            xmin = xmax - 1024
+                            xmin = xmax - size
                         if ymax >= height:
                             ymax = height - 1
-                            ymin = ymax - 1024
+                            ymin = ymax - size
                         xmin = max(xmin, 0)
                         ymin = max(ymin, 0)
 
@@ -739,7 +741,7 @@ def main(subset='train', do_aug=False):
                         if not (xmax > xmin and ymax > ymin):
                             continue
 
-                        im_sub = np.zeros((1024, 1024, 3), dtype=np.uint8)
+                        im_sub = np.zeros((size, size, 3), dtype=np.uint8)
                         # print('(%d, %d) --> (%d, %d), (%d, %d)' % (xmin, ymin, xmax, ymax, w, h))
                         im_sub[:h, :w, :] = img0[ymin:ymax, xmin:xmax, :].copy()
 
@@ -830,7 +832,7 @@ def main(subset='train', do_aug=False):
                                     IsValid = True
 
                                     valid_lines.append(
-                                        "%d %f %f %f %f\n" % (label - 1, xc1 / 1024, yc1 / 1024, w1 / 1024, h1 / 1024))
+                                        "%d %f %f %f %f\n" % (label - 1, xc1 / size, yc1 / size, w1 / size, h1 / size))
 
                                     # for coco format
                                     single_obj = {'area': int(w1 * h1),
@@ -926,9 +928,9 @@ def main(subset='train', do_aug=False):
                                     # directly warp the rotated rectangle to get the straightened rectangle
                                     warped = cv2.warpPerspective(img0, M, (rwidth, rheight))
 
-                                    im_sub = np.zeros((1024, 1024, 3), dtype=np.uint8)
-                                    im_sub[:min(1024, rheight), :min(1024, rwidth), :] = \
-                                        warped.copy()[:min(1024, rheight), :min(1024, rwidth), :]
+                                    im_sub = np.zeros((size, size, 3), dtype=np.uint8)
+                                    im_sub[:min(size, rheight), :min(size, rwidth), :] = \
+                                        warped.copy()[:min(size, rheight), :min(size, rwidth), :]
 
                                     imgpoly = shgeo.Polygon([(quad[0], quad[1]), (quad[2], quad[3]),
                                                              (quad[4], quad[5]), (quad[6], quad[7])])
@@ -1026,7 +1028,7 @@ def main(subset='train', do_aug=False):
 
                                                 valid_lines.append(
                                                     "%d %f %f %f %f\n" % (
-                                                        label - 1, xc1 / 1024, yc1 / 1024, w1 / 1024, h1 / 1024))
+                                                        label - 1, xc1 / size, yc1 / size, w1 / size, h1 / size))
 
                                                 # for coco format
                                                 single_obj = {'area': int(w1 * h1),
@@ -1271,5 +1273,6 @@ def main1(subset='train'):
 if __name__ == '__main__':
     # main_test_gt()
     # main_test_rotate()
-    main(subset='train', do_aug=True)
-    main(subset='val', do_aug=False)
+    size = int(sys.argv[1])
+    main(subset='train', do_aug=True, size=size)
+    main(subset='val', do_aug=False, size=size)
