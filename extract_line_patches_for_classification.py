@@ -1,8 +1,6 @@
 
 import sys,os,glob,shutil
 
-sys.path.insert(0, 'F:/gd/yoloV5/')
-
 import cv2
 from PIL import Image
 from osgeo import gdal, osr
@@ -12,9 +10,9 @@ import argparse
 import psutil  # 获取可用内存
 import numpy as np
 import torch
-from myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, \
+from yoloV5.myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, \
     compute_offsets, save_predictions_to_envi_xml, LoadImages
-from utils.general import xyxy2xywh, xywh2xyxy, box_iou
+from yoloV5.utils.general import xyxy2xywh, xywh2xyxy, box_iou
 
 """
 从*_gt_5.xml标注文件中提取第5类标签，提取image patches进行块分类
