@@ -52,18 +52,17 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info, valid_labels):
     return gt_boxes, gt_labels
 
 
-def main(subset='train', aug_times=1):
+def main(subset='train', aug_times=1, save_img=False,
+         save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
-        save_root = '/media/ubuntu/Data/gd_newAug_4classes/%s/' % (subset)
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
         gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
-        save_root = 'E:/patches_gt_aug_1/%s' % (subset)
 
-
+    save_root = '%s/%s/' % (save_root, subset)
     if not os.path.exists(save_root):
         os.makedirs(save_root)
 
@@ -242,7 +241,6 @@ def main(subset='train', aug_times=1):
                         single_image['width'] = sub_w
                         single_image['height'] = sub_h
                         data_dict['images'].append(single_image)
-                        image_id = image_id + 1
 
                         # for yolo format
                         cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
@@ -253,8 +251,9 @@ def main(subset='train', aug_times=1):
                         for box2 in sub_gt_boxes:
                             xmin, ymin, xmax, ymax, label = box2
 
-                            cv2.rectangle(cutout, (xmin, ymin), (xmax, ymax), color=colors[label],
-                                          thickness=3)
+                            if save_img:
+                                cv2.rectangle(cutout, (xmin, ymin), (xmax, ymax), color=colors[label],
+                                              thickness=3)
 
                             xc1 = int((xmin + xmax) / 2)
                             yc1 = int((ymin + ymax) / 2)
@@ -280,10 +279,13 @@ def main(subset='train', aug_times=1):
                             data_dict['annotations'].append(single_obj)
                             inst_count = inst_count + 1
 
+                        image_id = image_id + 1
+
                         with open(save_txt_path + save_prefix + '.txt', 'w') as fp:
                             fp.writelines(valid_lines)
 
-                        cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
+                        if save_img:
+                            cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
 
                     # im = im[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
                     # im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32
@@ -298,5 +300,18 @@ def main(subset='train', aug_times=1):
 
 
 if __name__ == '__main__':
-    main(subset='train', aug_times=1)
-    main(subset='val', aug_times=1)
+    if len(sys.argv) != 3:
+        print('python ./this_script.py aug_times(int) save_img(bool)')
+        sys.exit(-1)
+
+    aug_times = int(sys.argv[1])
+    save_img = int(sys.argv[2]) != 0
+
+    hostname = socket.gethostname()
+    if hostname == 'master':
+        save_root = '/media/ubuntu/Data/gd_newAug%d_4classes' % aug_times
+    else:
+        save_root = 'E:/gd_newAug%d_4classes' % aug_times
+
+    main(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root)
+    main(subset='val', aug_times=2, save_img=save_img, save_root=save_root)
