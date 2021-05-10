@@ -53,7 +53,7 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info, valid_labels):
 
 
 def main(subset='train', aug_times=1, save_img=False,
-         save_root=None):
+         save_root=None, do_rot=False):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -300,18 +300,25 @@ def main(subset='train', aug_times=1, save_img=False,
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print('python ./this_script.py aug_times(int) save_img(bool)')
+
+    print(sys.argv)
+    if len(sys.argv) != 4:
+        print('python ./this_script.py aug_times(int) save_img(int) do_rot(int)')
         sys.exit(-1)
 
     aug_times = int(sys.argv[1])
     save_img = int(sys.argv[2]) != 0
+    do_rot = int(sys.argv[3]) != 0
 
     hostname = socket.gethostname()
     if hostname == 'master':
-        save_root = '/media/ubuntu/Data/gd_newAug%d_4classes' % aug_times
+        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rot)
     else:
-        save_root = 'E:/gd_newAug%d_4classes' % aug_times
+        save_root = 'E:/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rot)
 
-    main(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root)
-    main(subset='val', aug_times=2, save_img=save_img, save_root=save_root)
+    # TODO zzs, implement the rotate augmentation
+
+    main(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root,
+         do_rot=do_rot)
+    main(subset='val', aug_times=2, save_img=save_img, save_root=save_root,
+         do_rot=do_rot)
