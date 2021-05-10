@@ -6,7 +6,7 @@ import torch
 from osgeo import gdal, osr
 from natsort import natsorted
 from yoloV5.myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, box_iou_np, \
-    box_intersection_np
+    box_intersection_np, load_gt_polys_from_esri_xml, compute_offsets
 import json
 import socket
 
@@ -52,8 +52,328 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info, valid_labels):
     return gt_boxes, gt_labels
 
 
+def extract_fg_images(subset='train', save_root=None):
+    hostname = socket.gethostname()
+    if hostname == 'master':
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
+    else:
+        source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
+        gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
+
+    if not os.path.exists(save_root):
+        os.makedirs(save_root)
+
+    fg_images_filename = os.path.join(save_root, subset + '_fg_images.npy')
+    fg_boxes_filename = os.path.join(save_root, subset + '_fg_boxes.npy')
+    if os.path.exists(fg_images_filename) and os.path.exists(fg_boxes_filename):
+        return fg_images_filename, fg_boxes_filename
+
+    gt_postfix = '_gt_5.xml'
+    valid_labels_set = [1, 2, 3, 4]
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    cache_label_list = [1, 2, 3]
+    cache_patches_list = []  # save the extracted gt_img_patches
+    cache_boxes_list = []  # save the gt_boxes with the patch
+
+    for ti in range(len(tiffiles)):
+        tiffile = tiffiles[ti]
+        file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+
+        print(ti, '=' * 80)
+        print(file_prefix)
+
+        ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+        print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                     ds.GetDriver().LongName))
+        print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                            ds.RasterYSize,
+                                            ds.RasterCount))
+        print("Projection is {}".format(ds.GetProjection()))
+        projection = ds.GetProjection()
+        projection_sr = osr.SpatialReference(wkt=projection)
+        projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+        geotransform = ds.GetGeoTransform()
+        xOrigin = geotransform[0]
+        yOrigin = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+        if geotransform:
+            print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+            print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+            print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+
+        gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
+
+        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+                                      valid_labels=valid_labels_set)
+
+        if len(gt_boxes) == 0:
+            continue
+
+        for j, (box, label) in enumerate(zip(gt_boxes, gt_labels)):  # per item
+            if label <= 3:  # 1, 2, 3
+                xmin0, ymin0, xmax0, ymax0 = box
+
+                # crop the gt_boxes patch and the gt_boxes within it and save them for further augmentation
+                if label in cache_label_list:
+                    sub_h, sub_w = int(ymax0 - ymin0), int(xmax0 - xmin0)
+                    # find the gt_boxes within this box
+                    boxes = np.copy(gt_boxes)
+                    labels = np.copy(gt_labels)
+                    ious = box_iou_np(np.array([xmin0, ymin0, xmax0, ymax0], dtype=np.float32).reshape(-1, 4), boxes)
+                    idx2 = np.where(ious > 1e-8)[1]
+                    tmp_boxes = []
+                    if len(idx2) > 0:
+                        valid_boxes = boxes[idx2, :]
+                        valid_labels = labels[idx2]
+                        valid_boxes[:, [0, 2]] -= xmin0
+                        valid_boxes[:, [1, 3]] -= ymin0
+                        for box1, label1 in zip(valid_boxes.astype(np.int32), valid_labels):
+                            xmin, ymin, xmax, ymax = box1
+                            xmin1 = max(1, xmin)
+                            ymin1 = max(1, ymin)
+                            xmax1 = min(xmax, sub_w - 1)
+                            ymax1 = min(ymax, sub_h - 1)
+                            # here, check the new gt_box[xmin1, ymin1, xmax1, ymax1]
+                            # if the area of new gt_box is less than 0.6 of the original box, then remove this box and
+                            # record its position, to put it to zero in the image
+                            area1 = (xmax1 - xmin1) * (ymax1 - ymin1)
+                            area = (xmax - xmin) * (ymax - ymin)
+                            if area1 >= 0.6 * area:
+                                tmp_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
+                    if len(tmp_boxes) > 0:
+                        cutout = []
+                        for bi in range(3):
+                            band = ds.GetRasterBand(bi + 1)
+                            band_data = band.ReadAsArray(int(xmin0), int(ymin0),
+                                                         win_xsize=sub_w,
+                                                         win_ysize=sub_h)
+                            cutout.append(band_data)
+                        cutout = np.stack(cutout, -1)  # this is RGB
+                        cache_patches_list.append(cutout)
+                        cache_boxes_list.append(np.array(tmp_boxes).reshape(-1, 5))
+
+    if len(cache_patches_list) > 0:
+        np.save(fg_images_filename, cache_patches_list, allow_pickle=True)
+        np.save(fg_boxes_filename, cache_boxes_list, allow_pickle=True)
+    return fg_images_filename, fg_boxes_filename
+
+
+def extract_bg_images(subset='train', save_root=None, random_count=0):
+    hostname = socket.gethostname()
+    if hostname == 'master':
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
+    else:
+        source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
+        gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
+
+    save_root = '%s/bg_images/' % save_root
+    if not os.path.exists(save_root):
+        os.makedirs(save_root)
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    if random_count > 0:
+        # based on the cached image patches
+        # first extract the background image
+        # then paste the image patch into the bg image
+        big_subsize = 10240
+        gt_gap = 128
+        for ti in range(len(tiffiles)):
+            tiffile = tiffiles[ti]
+            file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+
+            print(ti, '=' * 80)
+            print(file_prefix)
+
+            ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+            print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                         ds.GetDriver().LongName))
+            print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                                ds.RasterYSize,
+                                                ds.RasterCount))
+            print("Projection is {}".format(ds.GetProjection()))
+            projection = ds.GetProjection()
+            projection_sr = osr.SpatialReference(wkt=projection)
+            projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+            geotransform = ds.GetGeoTransform()
+            xOrigin = geotransform[0]
+            yOrigin = geotransform[3]
+            pixelWidth = geotransform[1]
+            pixelHeight = geotransform[5]
+            orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+            if geotransform:
+                print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+                print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+                print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+
+            gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
+            gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
+
+            gt_boxes, gt_boxes_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+                                                valid_labels=[1, 2, 3, 4])
+
+            gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_LineRegion14.xml')
+
+            gt_polys, gt_labels = load_gt_polys_from_esri_xml(gt_xml_filename, gdal_trans_info=geotransform,
+                                                              mapcoords2pixelcoords=True)
+            print(len(gt_polys), len(gt_labels))
+
+            # 首先根据标注生成mask图像，存在内存问题！！！
+            print('generate mask ...')
+            mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
+            if True:
+                # 下面的可以直接画所有的轮廓，但是会出现相排斥的现象，用下面的循环可以得到合适的mask
+                # cv2.drawContours(mask, gt_polys, -1, color=(255, 0, 0), thickness=-1)
+
+                if len(gt_boxes) > 0:
+                    for box in gt_boxes:
+                        xmin, ymin, xmax, ymax = box
+                        poly = np.array([[xmin, ymin], [xmax, ymin],
+                                         [xmax, ymax], [xmin, ymax]], dtype=np.int32).reshape([4, 2])
+                        cv2.drawContours(mask, [poly], -1, color=(255, 0, 0), thickness=-1)
+
+                for poly, label in zip(gt_polys, gt_labels):  # poly为nx2的点, numpy.array
+                    cv2.drawContours(mask, [poly], -1, color=(255, 0, 0), thickness=-1)
+
+                # mask_savefilename = save_root + "/" + file_prefix + ".png"
+                # cv2.imwrite(mask_savefilename, mask)
+                # if not os.path.exists(mask_savefilename):
+                #     cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
+
+            # 在图片中随机采样一些点
+            print('generate random sample points ...')
+            offsets = compute_offsets(height=orig_height, width=orig_width, subsize=big_subsize, gap=2 * gt_gap)
+            random_indices_y = []
+            random_indices_x = []
+            for oi, (xoffset, yoffset, sub_width, sub_height) in enumerate(offsets):  # left, up
+                # sub_width = min(orig_width, big_subsize)
+                # sub_height = min(orig_height, big_subsize)
+                # if xoffset + sub_width > orig_width:
+                #     sub_width = orig_width - xoffset
+                # if yoffset + sub_height > orig_height:
+                #     sub_height = orig_height - yoffset
+
+                # print('processing sub image %d' % oi, xoffset, yoffset, sub_width, sub_height)
+                img0 = np.zeros((sub_height, sub_width, 3), dtype=np.uint8)  # RGB format
+                for b in range(3):
+                    band = ds.GetRasterBand(b + 1)
+                    img0[:, :, b] = band.ReadAsArray(xoffset, yoffset, win_xsize=sub_width, win_ysize=sub_height)
+                img0_sum = np.sum(img0, axis=2)
+                indices_y, indices_x = np.where(img0_sum > 0)
+                inds = np.arange(len(indices_x))
+                np.random.shuffle(inds)
+                count = min(random_count, len(inds))
+                random_indices_y.append(indices_y[inds[:count]] + yoffset)
+                random_indices_x.append(indices_x[inds[:count]] + xoffset)
+
+                del img0, img0_sum, indices_y, indices_x
+
+            random_indices_y = np.concatenate(random_indices_y).reshape(-1, 1)
+            random_indices_x = np.concatenate(random_indices_x).reshape(-1, 1)
+            print(random_indices_y.shape, random_indices_x.shape)
+            print(random_indices_y[:10])
+            print(random_indices_x[:10])
+
+            for j, (xc, yc) in enumerate(zip(random_indices_x, random_indices_y)):  # per item
+
+                w = np.random.randint(low=600, high=1024)
+                h = np.random.randint(low=600, high=1024)
+                xmin1, ymin1 = xc - w / 2, yc - h / 2
+                xmax1, ymax1 = xc + w / 2, yc + h / 2
+                if xmin1 < 0:
+                    xmin1 = 0
+                    xmax1 = w
+                if ymin1 < 0:
+                    ymin1 = 0
+                    ymax1 = h
+                if xmax1 > orig_width - 1:
+                    xmax1 = orig_width - 1
+                    xmin1 = orig_width - 1 - w
+                if ymax1 > orig_height - 1:
+                    ymax1 = orig_height - 1
+                    ymin1 = orig_height - 1 - h
+
+                xmin1 = int(xmin1)
+                xmax1 = int(xmax1)
+                ymin1 = int(ymin1)
+                ymax1 = int(ymax1)
+                width = xmax1 - xmin1
+                height = ymax1 - ymin1
+
+                # 查找gtboxes里面，与当前框有交集的框
+                mask1 = mask[ymin1:ymax1, xmin1:xmax1]
+                if mask1.sum() > 0:
+                    continue
+
+
+                cutout = []
+                for bi in range(3):
+                    band = ds.GetRasterBand(bi + 1)
+                    band_data = band.ReadAsArray(xmin1, ymin1, win_xsize=width, win_ysize=height)
+                    cutout.append(band_data)
+                im1 = np.stack(cutout, -1)  # RGB
+
+                cv2.imencode('.png', im1)[1].tofile('%s/bg_%d_%d.png' % (save_root, ti, j))
+
+            del mask
+    return save_root
+
+
+def compose_fg_bg(bg, fg_ims, fg_boxes):
+    # bg: HxWx3 RGB
+    # fg_ims: list of RGB images [hxwx3]
+    # fg_boxes: list of boxes [nx5]
+    return [], [], []
+
+
+def compose_fg_bg_images(subset='train', aug_times=1, save_img=False,
+         save_root=None, do_rot=False, random_count=0):
+    fg_images_filename, fg_boxes_filename = extract_fg_images(subset, save_root)
+    bg_images_dir = extract_bg_images(subset, save_root, random_count)
+
+    print(fg_images_filename)
+    print(fg_images_filename)
+    print(bg_images_dir)
+
+    fg_images_list = np.load(fg_images_filename, allow_pickle=True)  # list of RGB images [HxWx3]
+    fg_boxes_list = np.load(fg_boxes_filename, allow_pickle=True)   #  list of boxes [nx5]
+    fg_inds = np.arange(len(fg_images_list))
+
+    bg_filenames = glob.glob(bg_images_dir + '/*.png')
+    for bg_filename in bg_filenames:
+        bg = cv2.imread(bg_filename)
+        H, W = bg.shape[:,2]
+
+        selected_fg_inds = np.random.choice(fg_inds, size=np.random.randint(1, 3))
+        selected_fg_images = [fg_images_list[i] for i in selected_fg_inds]
+        selected_fg_boxes = [fg_boxes_list[i] for i in selected_fg_inds]
+
+        im, gt_boxes, gt_labels = compose_fg_bg(bg, selected_fg_images, selected_fg_boxes)
+
+    pass
+
+
 def main(subset='train', aug_times=1, save_img=False,
-         save_root=None, do_rot=False):
+         save_root=None, do_rot=False, random_count=0):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -104,7 +424,6 @@ def main(subset='train', aug_times=1, save_img=False,
 
         print(ti, '=' * 80)
         print(file_prefix)
-
 
         ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
         print("Driver: {}/{}".format(ds.GetDriver().ShortName,
@@ -291,34 +610,41 @@ def main(subset='train', aug_times=1, save_img=False,
                     # im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32
                     # im /= 255.0  # 0 - 255 to 0.0 - 1.0
                     # ims.append(im)
-    if len(list_lines) > 0:
-        with open(save_root + '/%s.txt' % subset, 'w') as fp:
-            fp.writelines(list_lines)
 
-        with open(save_root + '/%s.json' % subset, 'w') as f_out:
-            json.dump(data_dict, f_out, indent=4)
+    # if len(list_lines) > 0:
+    #     with open(save_root + '/%s.txt' % subset, 'w') as fp:
+    #         fp.writelines(list_lines)
+    #
+    #     with open(save_root + '/%s.json' % subset, 'w') as f_out:
+    #         json.dump(data_dict, f_out, indent=4)
+
+    return list_lines, data_dict
 
 
 if __name__ == '__main__':
 
     print(sys.argv)
-    if len(sys.argv) != 4:
-        print('python ./this_script.py aug_times(int) save_img(int) do_rot(int)')
+    if len(sys.argv) != 5:
+        print('python ./this_script.py aug_times(int) save_img(int) do_rot(int) random_count')
         sys.exit(-1)
 
     aug_times = int(sys.argv[1])
     save_img = int(sys.argv[2]) != 0
     do_rot = int(sys.argv[3]) != 0
+    random_count = int(sys.argv[4])
 
     hostname = socket.gethostname()
     if hostname == 'master':
-        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rot)
+        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes_test' % (aug_times, do_rot)
     else:
-        save_root = 'E:/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rot)
+        save_root = 'E:/gd_newAug%d_Rot%d_4classes_test' % (aug_times, do_rot)
 
     # TODO zzs, implement the rotate augmentation
 
-    main(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root,
-         do_rot=do_rot)
-    main(subset='val', aug_times=2, save_img=save_img, save_root=save_root,
-         do_rot=do_rot)
+    # main(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root,
+    #      do_rot=do_rot, random_count=random_count)
+    # main(subset='val', aug_times=2, save_img=save_img, save_root=save_root,
+    #      do_rot=do_rot, random_count=1)
+
+    compose_fg_bg_images(subset='train', aug_times=1, save_img=False, save_root=save_root,
+                         do_rot=do_rot, random_count=random_count)
