@@ -6,9 +6,10 @@ import torch
 from osgeo import gdal, osr
 from natsort import natsorted
 from yoloV5.myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, box_iou_np, \
-    box_intersection_np, load_gt_polys_from_esri_xml, compute_offsets
+    box_intersection_np, load_gt_polys_from_esri_xml, compute_offsets, alpha_map
 import json
 import socket
+from PIL import Image, ImageDraw, ImageFilter
 
 """
 从gt中提取图像块，包含gt boxes
@@ -127,24 +128,36 @@ def extract_fg_images(subset='train', save_root=None):
 
                 # crop the gt_boxes patch and the gt_boxes within it and save them for further augmentation
                 if label in cache_label_list:
-                    sub_h, sub_w = int(ymax0 - ymin0), int(xmax0 - xmin0)
+                    xc = (xmin0 + xmax0) // 2
+                    yc = (ymin0 + ymax0) // 2
+                    width, height = xmax0 - xmin0, ymax0 - ymin0
+                    width = width * 1.1 + 32
+                    height = height * 1.1 + 32
+                    xoffset = max(0, xc - width // 2)
+                    yoffset = max(0, yc - height // 2)
+                    if xoffset + width > orig_width:
+                        width = orig_width - xoffset
+                    if yoffset + height > orig_height:
+                        height = orig_height - yoffset
                     # find the gt_boxes within this box
                     boxes = np.copy(gt_boxes)
                     labels = np.copy(gt_labels)
-                    ious = box_iou_np(np.array([xmin0, ymin0, xmax0, ymax0], dtype=np.float32).reshape(-1, 4), boxes)
+                    ious = box_iou_np(np.array([xoffset, yoffset, xoffset + width, yoffset + height],
+                                               dtype=np.float32).reshape(-1, 4),
+                                      boxes)
                     idx2 = np.where(ious > 1e-8)[1]
                     tmp_boxes = []
                     if len(idx2) > 0:
                         valid_boxes = boxes[idx2, :]
                         valid_labels = labels[idx2]
-                        valid_boxes[:, [0, 2]] -= xmin0
-                        valid_boxes[:, [1, 3]] -= ymin0
+                        valid_boxes[:, [0, 2]] -= xoffset
+                        valid_boxes[:, [1, 3]] -= yoffset
                         for box1, label1 in zip(valid_boxes.astype(np.int32), valid_labels):
                             xmin, ymin, xmax, ymax = box1
                             xmin1 = max(1, xmin)
                             ymin1 = max(1, ymin)
-                            xmax1 = min(xmax, sub_w - 1)
-                            ymax1 = min(ymax, sub_h - 1)
+                            xmax1 = min(xmax, width - 1)
+                            ymax1 = min(ymax, height - 1)
                             # here, check the new gt_box[xmin1, ymin1, xmax1, ymax1]
                             # if the area of new gt_box is less than 0.6 of the original box, then remove this box and
                             # record its position, to put it to zero in the image
@@ -156,9 +169,9 @@ def extract_fg_images(subset='train', save_root=None):
                         cutout = []
                         for bi in range(3):
                             band = ds.GetRasterBand(bi + 1)
-                            band_data = band.ReadAsArray(int(xmin0), int(ymin0),
-                                                         win_xsize=sub_w,
-                                                         win_ysize=sub_h)
+                            band_data = band.ReadAsArray(int(xoffset), int(yoffset),
+                                                         win_xsize=int(width),
+                                                         win_ysize=int(height))
                             cutout.append(band_data)
                         cutout = np.stack(cutout, -1)  # this is RGB
                         cache_patches_list.append(cutout)
@@ -182,6 +195,8 @@ def extract_bg_images(subset='train', save_root=None, random_count=0):
     save_root = '%s/bg_images/' % save_root
     if not os.path.exists(save_root):
         os.makedirs(save_root)
+    elif len(glob.glob(save_root + '/*.png')) > 0:
+        return save_root
 
     tiffiles = None
     if os.path.isfile(source) and source[-4:] == '.txt':
@@ -324,7 +339,6 @@ def extract_bg_images(subset='train', save_root=None, random_count=0):
                 if mask1.sum() > 0:
                     continue
 
-
                 cutout = []
                 for bi in range(3):
                     band = ds.GetRasterBand(bi + 1)
@@ -338,38 +352,259 @@ def extract_bg_images(subset='train', save_root=None, random_count=0):
     return save_root
 
 
-def compose_fg_bg(bg, fg_ims, fg_boxes):
+def compose_fg_bg_v1(bg, fg_images_list, fg_boxes_list, inds):   # not good
     # bg: HxWx3 RGB
     # fg_ims: list of RGB images [hxwx3]
     # fg_boxes: list of boxes [nx5]
-    return [], [], []
+
+    im = np.copy(bg)
+    H, W = im.shape[:2]
+    mask = np.zeros((H, W), dtype=np.uint8)
+    boxes = []
+    for ind in inds:
+        fg = np.zeros((H, W, 3), dtype=np.uint8)
+        fg_im = np.copy(fg_images_list[ind])  # RGB
+        fg_boxes = np.copy(fg_boxes_list[ind])  # nx5
+        if len(fg_boxes) == 0:
+            continue
+        h, w = fg_im.shape[:2]
+        area = h * w
+        is_ok = False
+        xc, yc = -1, -1
+        for step in range(10):
+            mask1 = np.zeros((H, W), dtype=np.uint8)
+            xc = np.random.randint(low=int(w//2+1), high=int(W-w//2-1))
+            yc = np.random.randint(low=int(h//2+1), high=int(H-h//2-1))
+            left = xc - w//2
+            up = yc - h//2
+            mask1[up:(up+h), left:(left+h)] = 1
+            area1 = len(np.where(mask & mask1)[0])
+            if area1 < 0.4 * area:
+                is_ok = True
+                break
+        if is_ok:
+            left = xc - w//2
+            up = yc - h//2
+            alpha = alpha_map(W, H, w, h, xc, yc)
+            fg[up:(up+h), left:(left+w), :] = fg_im
+            mask[up:(up + h), left:(left + h)] = 1
+            im = alpha * fg + (1 - alpha) * im
+            im = im.astype(np.uint8)
+
+            fg_boxes[:, [0, 2]] += left
+            fg_boxes[:, [1, 3]] += up
+            boxes.append(fg_boxes)
+    if len(boxes) > 0:
+        boxes = np.concatenate(boxes, axis=0)
+        return im, boxes  # RGB, nx5
+    else:
+        return [], []
+
+
+def compose_fg_bg(bg, fg_images_list, fg_boxes_list, inds):   # not good
+    # bg: HxWx3 RGB
+    # fg_ims: list of RGB images [hxwx3]
+    # fg_boxes: list of boxes [nx5]
+
+    im = Image.fromarray(np.copy(bg))
+    W, H = im.size
+    mask = np.zeros((H, W), dtype=np.uint8)
+    boxes = []
+    blur_radius = 10
+    for ind in inds:
+        fg_im = np.copy(fg_images_list[ind])
+        h, w = fg_im.shape[:2]
+        if h > H - 32 or w > W - 32:
+            continue
+
+        fg_boxes0 = np.copy(fg_boxes_list[ind])  # nx5
+        valid_inds = np.where(fg_boxes0[:, 4] >= 2)[0]
+        fg_boxes = fg_boxes0[valid_inds, :5]
+
+        if len(fg_boxes) == 0:
+            continue
+        # print('fg_boxes', fg_boxes)
+
+        fg_boxes_xmin = np.min(fg_boxes[:, 0])
+        fg_boxes_ymin = np.min(fg_boxes[:, 1])
+        fg_boxes_xmax = np.max(fg_boxes[:, 2])
+        fg_boxes_ymax = np.max(fg_boxes[:, 3])
+
+        is_ok = False
+        xc, yc = -1, -1
+        for step in range(10):
+            xc = np.random.randint(low=int(w//2+1), high=int(W-w//2-1))
+            yc = np.random.randint(low=int(h//2+1), high=int(H-h//2-1))
+            left = xc - w//2
+            up = yc - h//2
+            if len(boxes) == 0:
+                is_ok = True
+                break
+            mask1 = np.zeros((H, W), dtype=np.uint8)
+            mask1[up:(up+h), left:(left+w)] = 1
+            area1 = len(np.where(mask & mask1)[0])
+            if area1 < 10:
+                is_ok = True
+                break
+        if is_ok:
+            left = xc - w//2
+            up = yc - h//2
+
+            fg = np.zeros((H, W, 3), dtype=np.uint8)
+            mask1 = np.zeros((H, W), dtype=np.uint8)
+            fg[up:(up+h), left:(left+w), :] = fg_im
+            mask[up:(up+h), left:(left+w)] = 1
+            mask1_im = Image.fromarray(mask1)
+            draw1 = ImageDraw.Draw(mask1_im)
+            draw1.rectangle((left+fg_boxes_xmin, up+fg_boxes_ymin, left+fg_boxes_xmax, up+fg_boxes_ymax), fill=255)
+            mask1_im_blur = mask1_im.filter(ImageFilter.GaussianBlur(blur_radius))
+            im.paste(Image.fromarray(fg), (0, 0), mask1_im_blur)
+
+            fg_boxes[:, [0, 2]] += left
+            fg_boxes[:, [1, 3]] += up
+            boxes.append(fg_boxes)
+    if len(boxes) > 0:
+        boxes = np.concatenate(boxes, axis=0)
+        return np.array(im), boxes  # RGB, nx5
+    else:
+        return [], []
 
 
 def compose_fg_bg_images(subset='train', aug_times=1, save_img=False,
-         save_root=None, do_rot=False, random_count=0):
+                         save_root=None, do_rot=False, random_count=0):
+    save_root = '%s/%s/' % (save_root, subset)
+    if not os.path.exists(save_root):
+        os.makedirs(save_root)
+
+    save_img_path = '%s/images/' % save_root
+    save_img_shown_path = '%s/images_shown/' % save_root
+    save_txt_path = '%s/labels/' % save_root
+    for p in [save_img_path, save_txt_path, save_img_shown_path]:
+        if not os.path.exists(p):
+            os.makedirs(p)
+
+    print('extract fg images ...')
     fg_images_filename, fg_boxes_filename = extract_fg_images(subset, save_root)
+
+    print('extract bg images ...')
     bg_images_dir = extract_bg_images(subset, save_root, random_count)
 
     print(fg_images_filename)
     print(fg_images_filename)
     print(bg_images_dir)
-
+    print('compose fg and bg to new train images ...')
     fg_images_list = np.load(fg_images_filename, allow_pickle=True)  # list of RGB images [HxWx3]
-    fg_boxes_list = np.load(fg_boxes_filename, allow_pickle=True)   #  list of boxes [nx5]
+    fg_boxes_list = np.load(fg_boxes_filename, allow_pickle=True)  # list of boxes [nx5]
     fg_inds = np.arange(len(fg_images_list))
 
+    list_lines = []
+    data_dict = {}
+    data_dict['images'] = []
+    data_dict['categories'] = []
+    data_dict['annotations'] = []
+    for idex, name in enumerate(["1", "2", "3", "4"]):  # 1,2,3 is gan, 4 is jueyuanzi
+        single_cat = {'id': idex + 1, 'name': name, 'supercategory': name}
+        data_dict['categories'].append(single_cat)
+
+    inst_count = 1
+    image_id = 1
+
+    colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
+
     bg_filenames = glob.glob(bg_images_dir + '/*.png')
-    for bg_filename in bg_filenames:
+    bg_count = min(5000, len(bg_filenames))
+    if bg_count > 5000:
+        bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=bg_count, replace=False)
+    else:
+        bg_indices = np.arange(len(bg_filenames))
+    for bg_ind in bg_indices:
+        bg_filename = bg_filenames[bg_ind]
+        file_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
         bg = cv2.imread(bg_filename)
-        H, W = bg.shape[:,2]
 
-        selected_fg_inds = np.random.choice(fg_inds, size=np.random.randint(1, 3))
-        selected_fg_images = [fg_images_list[i] for i in selected_fg_inds]
-        selected_fg_boxes = [fg_boxes_list[i] for i in selected_fg_inds]
+        if min(bg.shape[:2]) < 500:
+            continue
 
-        im, gt_boxes, gt_labels = compose_fg_bg(bg, selected_fg_images, selected_fg_boxes)
+        for aug_time in range(aug_times):
+            selected_fg_inds = np.random.choice(fg_inds, size=np.random.randint(1, 4))
 
-    pass
+            im, gt_boxes = compose_fg_bg(bg, fg_images_list, fg_boxes_list, selected_fg_inds)
+
+            save_img = False
+
+            # draw gt boxes
+            if len(gt_boxes) > 0:
+                save_prefix = '%s_%d' % (file_prefix, aug_time)
+                sub_h, sub_w = im.shape[:2]
+
+                # save image
+                # for coco format
+                single_image = {}
+                single_image['file_name'] = save_prefix + '.jpg'
+                single_image['id'] = image_id
+                single_image['width'] = sub_w
+                single_image['height'] = sub_h
+                data_dict['images'].append(single_image)
+
+                # for yolo format
+                cv2.imwrite(save_img_path + save_prefix + '.jpg', im[:, :, ::-1])  # RGB --> BGR
+
+                list_lines.append('./images/%s.jpg\n' % save_prefix)
+
+                if np.random.rand() < 0.05:
+                    save_img = True
+
+                valid_lines = []
+                for box2 in gt_boxes.astype(np.int32):
+                    xmin, ymin, xmax, ymax, label = box2
+
+                    if save_img:
+                        cv2.rectangle(im, (xmin, ymin), (xmax, ymax), color=colors[label],
+                                      thickness=3)
+
+                    xc1 = int((xmin + xmax) / 2)
+                    yc1 = int((ymin + ymax) / 2)
+                    w1 = xmax - xmin
+                    h1 = ymax - ymin
+
+                    valid_lines.append(
+                        "%d %f %f %f %f\n" % (label - 1, xc1 / sub_w, yc1 / sub_h, w1 / sub_w, h1 / sub_h))
+
+                    # for coco format
+                    single_obj = {'area': int(w1 * h1),
+                                  'category_id': int(label),
+                                  'segmentation': []}
+                    single_obj['segmentation'].append(
+                        [int(xmin), int(ymin), int(xmax), int(ymin),
+                         int(xmax), int(ymax), int(xmin), int(ymax)]
+                    )
+                    single_obj['iscrowd'] = 0
+
+                    single_obj['bbox'] = int(xmin), int(ymin), int(w1), int(h1)
+                    single_obj['image_id'] = image_id
+                    single_obj['id'] = inst_count
+                    data_dict['annotations'].append(single_obj)
+                    inst_count = inst_count + 1
+
+                image_id = image_id + 1
+
+                with open(save_txt_path + save_prefix + '.txt', 'w') as fp:
+                    fp.writelines(valid_lines)
+
+                if save_img:
+                    cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', im[:, :, ::-1])  # RGB --> BGR
+
+            # im = im[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+            # im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32
+            # im /= 255.0  # 0 - 255 to 0.0 - 1.0
+            # ims.append(im)
+
+    if len(list_lines) > 0:
+        with open(save_root + '/%s.txt' % subset, 'w') as fp:
+            fp.writelines(list_lines)
+
+        with open(save_root + '/%s.json' % subset, 'w') as f_out:
+            json.dump(data_dict, f_out, indent=4)
 
 
 def main(subset='train', aug_times=1, save_img=False,
@@ -416,7 +651,7 @@ def main(subset='train', aug_times=1, save_img=False,
     inst_count = 1
     image_id = 1
 
-    colors = {1:(255, 0, 0), 2:(0, 255, 0), 3:(0, 0, 255), 4:(255, 255, 0)}
+    colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -461,7 +696,7 @@ def main(subset='train', aug_times=1, save_img=False,
 
                 for aug_time in range(aug_times):
                     xmin, ymin, xmax, ymax = xmin0, ymin0, xmax0, ymax0
-                    box_w, box_h = int(xmax - xmin), int(ymax-ymin)
+                    box_w, box_h = int(xmax - xmin), int(ymax - ymin)
 
                     sub_w = np.random.randint(low=max(box_w * 1.5, 600), high=max(box_w * 2, 1024))
                     sub_h = np.random.randint(low=max(box_h * 1.5, 600), high=max(box_h * 2, 1024))
@@ -546,7 +781,8 @@ def main(subset='train', aug_times=1, save_img=False,
                                                   np.array(sub_gt_boxes, dtype=np.float32).reshape(-1, 5)[:, :4])
                                 idx2 = np.where(ious > 0)[1]
                                 if len(idx2) > 0:
-                                    sub_gt_boxes = [box3 for ii, box3 in enumerate(sub_gt_boxes) if ii not in idx2.tolist()]
+                                    sub_gt_boxes = [box3 for ii, box3 in enumerate(sub_gt_boxes) if
+                                                    ii not in idx2.tolist()]
 
                     # draw gt boxes
                     if len(sub_gt_boxes) > 0:
@@ -611,40 +847,45 @@ def main(subset='train', aug_times=1, save_img=False,
                     # im /= 255.0  # 0 - 255 to 0.0 - 1.0
                     # ims.append(im)
 
-    # if len(list_lines) > 0:
-    #     with open(save_root + '/%s.txt' % subset, 'w') as fp:
-    #         fp.writelines(list_lines)
-    #
-    #     with open(save_root + '/%s.json' % subset, 'w') as f_out:
-    #         json.dump(data_dict, f_out, indent=4)
+    if len(list_lines) > 0:
+        with open(save_root + '/%s.txt' % subset, 'w') as fp:
+            fp.writelines(list_lines)
 
-    return list_lines, data_dict
+        with open(save_root + '/%s.json' % subset, 'w') as f_out:
+            json.dump(data_dict, f_out, indent=4)
 
 
 if __name__ == '__main__':
 
     print(sys.argv)
-    if len(sys.argv) != 5:
-        print('python ./this_script.py aug_times(int) save_img(int) do_rot(int) random_count')
+    if len(sys.argv) != 6:
+        print('python ./this_script.py aug_type aug_times(int) save_img(int) do_rot(int) random_count')
         sys.exit(-1)
-
-    aug_times = int(sys.argv[1])
-    save_img = int(sys.argv[2]) != 0
-    do_rot = int(sys.argv[3]) != 0
-    random_count = int(sys.argv[4])
+    aug_type = sys.argv[1]
+    aug_times = int(sys.argv[2])
+    save_img = int(sys.argv[3]) != 0
+    do_rot = int(sys.argv[4]) != 0
+    random_count = int(sys.argv[5])
 
     hostname = socket.gethostname()
+
     if hostname == 'master':
-        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes_test' % (aug_times, do_rot)
+        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes_%s' % (aug_times, do_rot, aug_type)
     else:
-        save_root = 'E:/gd_newAug%d_Rot%d_4classes_test' % (aug_times, do_rot)
+        save_root = 'E:/gd_newAug%d_Rot%d_4classes_%s' % (aug_times, do_rot, aug_type)
 
-    # TODO zzs, implement the rotate augmentation
+    if aug_type == 'v1':
 
-    # main(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root,
-    #      do_rot=do_rot, random_count=random_count)
-    # main(subset='val', aug_times=2, save_img=save_img, save_root=save_root,
-    #      do_rot=do_rot, random_count=1)
+        # TODO zzs, implement the rotate augmentation
 
-    compose_fg_bg_images(subset='train', aug_times=1, save_img=False, save_root=save_root,
-                         do_rot=do_rot, random_count=random_count)
+        main(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root,
+             do_rot=do_rot, random_count=random_count)
+        main(subset='val', aug_times=2, save_img=save_img, save_root=save_root,
+             do_rot=do_rot, random_count=1)
+
+    elif aug_type == 'v2':
+
+        compose_fg_bg_images(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root,
+                             do_rot=do_rot, random_count=random_count)
+        compose_fg_bg_images(subset='val', aug_times=1, save_img=True, save_root=save_root,
+                             do_rot=do_rot, random_count=4)
