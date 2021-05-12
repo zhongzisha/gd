@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from osgeo import gdal, osr
 from natsort import natsorted
-from yoloV5.myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, box_iou_np, \
+from myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, box_iou_np, \
     box_intersection_np, load_gt_polys_from_esri_xml, compute_offsets, alpha_map
 import json
 import socket
@@ -53,7 +53,7 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info, valid_labels):
     return gt_boxes, gt_labels
 
 
-def extract_fg_images(subset='train', save_root=None):
+def extract_fg_images_bak(subset='train', save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -165,6 +165,140 @@ def extract_fg_images(subset='train', save_root=None):
                             area = (xmax - xmin) * (ymax - ymin)
                             if area1 >= 0.6 * area:
                                 tmp_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
+                    if len(tmp_boxes) > 0:
+                        cutout = []
+                        for bi in range(3):
+                            band = ds.GetRasterBand(bi + 1)
+                            band_data = band.ReadAsArray(int(xoffset), int(yoffset),
+                                                         win_xsize=int(width),
+                                                         win_ysize=int(height))
+                            cutout.append(band_data)
+                        cutout = np.stack(cutout, -1)  # this is RGB
+                        cache_patches_list.append(cutout)
+                        cache_boxes_list.append(np.array(tmp_boxes).reshape(-1, 5))
+
+    if len(cache_patches_list) > 0:
+        np.save(fg_images_filename, cache_patches_list, allow_pickle=True)
+        np.save(fg_boxes_filename, cache_boxes_list, allow_pickle=True)
+    return fg_images_filename, fg_boxes_filename
+
+
+def extract_fg_images(subset='train', save_root=None, do_rotate=False):
+    hostname = socket.gethostname()
+    if hostname == 'master':
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
+    else:
+        source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
+        gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
+
+    if not os.path.exists(save_root):
+        os.makedirs(save_root)
+
+    fg_images_filename = os.path.join(save_root, subset + '_fg_images.npy')
+    fg_boxes_filename = os.path.join(save_root, subset + '_fg_boxes.npy')
+    if os.path.exists(fg_images_filename) and os.path.exists(fg_boxes_filename):
+        return fg_images_filename, fg_boxes_filename
+
+    gt_postfix = '_gt_5.xml'
+    valid_labels_set = [1, 2, 3, 4]
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    cache_label_list = [1, 2, 3]
+    cache_patches_list = []  # save the extracted gt_img_patches
+    cache_boxes_list = []  # save the gt_boxes with the patch
+
+    for ti in range(len(tiffiles)):
+        tiffile = tiffiles[ti]
+        file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+
+        print(ti, '=' * 80)
+        print(file_prefix)
+
+        ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+        print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                     ds.GetDriver().LongName))
+        print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                            ds.RasterYSize,
+                                            ds.RasterCount))
+        print("Projection is {}".format(ds.GetProjection()))
+        projection = ds.GetProjection()
+        projection_sr = osr.SpatialReference(wkt=projection)
+        projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+        geotransform = ds.GetGeoTransform()
+        xOrigin = geotransform[0]
+        yOrigin = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+        if geotransform:
+            print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+            print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+            print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+
+        gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
+
+        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+                                      valid_labels=valid_labels_set)
+
+        if len(gt_boxes) == 0:
+            continue
+
+        for j, (box, label) in enumerate(zip(gt_boxes, gt_labels)):  # per item
+            if label <= 3:  # 1, 2, 3
+                xmin0, ymin0, xmax0, ymax0 = box
+
+                # crop the gt_boxes patch and the gt_boxes within it and save them for further augmentation
+                if label in cache_label_list:
+                    xc = (xmin0 + xmax0) // 2
+                    yc = (ymin0 + ymax0) // 2
+                    width, height = xmax0 - xmin0, ymax0 - ymin0
+                    length = max(width, height)
+                    width = length * 1.1 + 32
+                    height = length * 1.1 + 32
+                    xoffset = max(0, xc - width // 2)
+                    yoffset = max(0, yc - height // 2)
+                    if xoffset + width > orig_width:
+                        width = orig_width - xoffset
+                    if yoffset + height > orig_height:
+                        height = orig_height - yoffset
+                    # find the gt_boxes within this box
+                    boxes = np.copy(gt_boxes)
+                    labels = np.copy(gt_labels)
+                    ious = box_iou_np(np.array([xoffset, yoffset, xoffset + width, yoffset + height],
+                                               dtype=np.float32).reshape(-1, 4),
+                                      boxes)
+                    idx2 = np.where(ious > 1e-8)[1]
+                    tmp_boxes = []
+                    if len(idx2) > 0:
+                        valid_boxes = boxes[idx2, :]
+                        valid_labels = labels[idx2]
+                        valid_boxes[:, [0, 2]] -= xoffset
+                        valid_boxes[:, [1, 3]] -= yoffset
+                        for box1, label1 in zip(valid_boxes.astype(np.int32), valid_labels):
+                            xmin, ymin, xmax, ymax = box1
+                            xmin1 = max(1, xmin)
+                            ymin1 = max(1, ymin)
+                            xmax1 = min(xmax, width - 1)
+                            ymax1 = min(ymax, height - 1)
+                            # here, check the new gt_box[xmin1, ymin1, xmax1, ymax1]
+                            # if the area of new gt_box is less than 0.6 of the original box, then remove this box and
+                            # record its position, to put it to zero in the image
+                            area1 = (xmax1 - xmin1) * (ymax1 - ymin1)
+                            area = (xmax - xmin) * (ymax - ymin)
+                            if area1 >= 0.6 * area:
+                                tmp_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
+
+
+
                     if len(tmp_boxes) > 0:
                         cutout = []
                         for bi in range(3):
@@ -512,20 +646,21 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_img=False,
     colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
 
     bg_filenames = glob.glob(bg_images_dir + '/*.png')
-    bg_count = min(5000, len(bg_filenames))
-    if bg_count > 5000:
-        bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=bg_count, replace=False)
-    else:
-        bg_indices = np.arange(len(bg_filenames))
-    for bg_ind in bg_indices:
-        bg_filename = bg_filenames[bg_ind]
-        file_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
-        bg = cv2.imread(bg_filename)
 
-        if min(bg.shape[:2]) < 500:
-            continue
+    for aug_time in range(aug_times):
+        if len(bg_filenames) > 5000:
+            bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=5000, replace=False)
+        else:
+            bg_indices = np.arange(len(bg_filenames))
 
-        for aug_time in range(aug_times):
+        for bg_ind in bg_indices:
+            bg_filename = bg_filenames[bg_ind]
+            file_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
+            bg = cv2.imread(bg_filename)
+
+            if min(bg.shape[:2]) < 500 or max(bg.shape[:2]) > 2048:
+                continue
+
             selected_fg_inds = np.random.choice(fg_inds, size=np.random.randint(1, 4))
 
             im, gt_boxes = compose_fg_bg(bg, fg_images_list, fg_boxes_list, selected_fg_inds)
