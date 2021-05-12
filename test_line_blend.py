@@ -1,6 +1,8 @@
 import sys,os,glob
 import cv2
 import numpy as np
+from myutils import elastic_transform, elastic_transform_v2
+
 
 save_dir="H:/tmp/"
 if not os.path.exists(save_dir):
@@ -20,21 +22,26 @@ for step in range(1, 3):
     cv2.line(im, (x[0], y[0]), (x[1], y[1]), color=(b, g, r), thickness=line_width)
 
 cv2.imshow("lined", im)
-cv2.imwrite("%s/lined.png"%save_dir, im)
 
 gauss_kernel = cv2.getGaussianKernel(3, 1)
 print('gauss_kernel', gauss_kernel)
 
-for ksize in [3, 5, 7, 9]:
-    ksize = int(ksize)
-    for sigma in range(1, ksize):
+if False:
+    # cv2.imwrite("%s/lined.png"%save_dir, im)
+    for ksize in [3, 5, 7, 9]:
+        ksize = int(ksize)
+        for sigma in range(1, ksize):
 
-        im1 = cv2.GaussianBlur(im.copy(), (ksize, ksize), sigmaX=sigma, sigmaY=sigma)
-        # cv2.imshow("gauss_blur", im1)
-        cv2.imwrite("%s/gauss_blur_ksize=%d_sigma=%d.png" % (save_dir, ksize, sigma), im1)
+            im1 = cv2.GaussianBlur(im.copy(), (ksize, ksize), sigmaX=sigma, sigmaY=sigma)
+            # cv2.imshow("gauss_blur", im1)
+            cv2.imwrite("%s/gauss_blur_ksize=%d_sigma=%d.png" % (save_dir, ksize, sigma), im1)
 
-    im2 = cv2.medianBlur(im.copy(), ksize)
-    # cv2.imshow("median_blur")
-    cv2.imwrite("%s/median_blur_ksize=%d.png"%(save_dir, ksize), im2)
+        im2 = cv2.medianBlur(im.copy(), ksize)
+        # cv2.imshow("median_blur")
+        cv2.imwrite("%s/median_blur_ksize=%d.png"%(save_dir, ksize), im2)
 
-# cv2.waitKey()
+im_copy = im.copy()
+im3 = elastic_transform_v2(im_copy, im_copy.shape[1] * 2, im_copy.shape[1] * 0.08, im_copy.shape[1] * 0.08)
+cv2.imshow("elastic", im3)
+
+cv2.waitKey()

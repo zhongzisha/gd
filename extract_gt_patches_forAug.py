@@ -1,12 +1,12 @@
 import sys, os, glob
-
+import argparse
 import cv2
 import numpy as np
 import torch
 from osgeo import gdal, osr
 from natsort import natsorted
 from myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, box_iou_np, \
-    box_intersection_np, load_gt_polys_from_esri_xml, compute_offsets, alpha_map
+    box_intersection_np, load_gt_polys_from_esri_xml, compute_offsets, alpha_map, elastic_transform_v2
 import json
 import socket
 from PIL import Image, ImageDraw, ImageFilter
@@ -742,6 +742,113 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_img=False,
             json.dump(data_dict, f_out, indent=4)
 
 
+def add_line_to_image(im, crop_width, crop_height):
+    # extract sub image from im and add line to the image
+    # return the croppped image and its line mask
+    H, W = im.shape[:2]
+    # im_sub = im[(H//2-crop_height//2):(H//2-crop_height//2+crop_height),
+    #          (W//2-crop_width//2):(W//2-crop_width//2+crop_width), :]
+    xc = np.random.randint(low=(crop_width+1)//2, high=(W - (crop_width+1)//2 -1))
+    yc = np.random.randint(low=(crop_height+1)//2, high=(H - (crop_height+1)//2 -1))
+    im_sub = im[(yc-crop_height//2):(yc-crop_height//2+crop_height),
+             (xc - crop_width // 2):(xc - crop_width // 2 + crop_width),
+             :]
+    if len(np.unique(im_sub)) < 50:
+        return None, None
+
+    H, W = crop_height, crop_width
+    mask = np.zeros((H, W), dtype=np.uint8)
+    for step in range(np.random.randint(2, 5)):
+        r = np.random.randint(180, 230)
+        g = r - np.random.randint(1, 7)
+        b = g - np.random.randint(1, 7)
+        line_width = np.random.randint(1, 4)
+
+        y = np.random.randint(0, H - 1, size=2)
+        x = np.random.randint(0, W - 1, size=2)
+        cv2.line(im_sub, (x[0], y[0]), (x[1], y[1]), color=(b, g, r), thickness=line_width)
+
+        cv2.line(mask, (x[0], y[0]), (x[1], y[1]), color=(1, 0, 0), thickness=line_width)
+
+        # TODO zzs draw paralle lineTODO zzs
+
+    # blur the image
+    ksize = np.random.choice([3, 5, 7])
+    prob = np.random.rand()
+    if prob < 0.3:
+        sigmas = np.arange(0.5, ksize, step=0.5)
+        im_sub = cv2.GaussianBlur(im_sub, ksize=(ksize, ksize),
+                                  sigmaX=np.random.choice(sigmas),
+                                  sigmaY=np.random.choice(sigmas))
+    elif 0.3 <= prob <= 0.7:
+        im_sub = cv2.medianBlur(im_sub, ksize=ksize)
+    else:
+        im_sub_with_mask = np.concatenate([im_sub, mask[:, :, None]], axis=2)
+        im_sub_with_mask = elastic_transform_v2(im_sub_with_mask, im_sub.shape[1] * 2,
+                                                im_sub.shape[1] * np.random.randint(low=4, high=10)/100,
+                                                im_sub.shape[1] * np.random.randint(low=4, high=10)/100)
+        im_sub, mask = im_sub_with_mask[:, :, :3], im_sub_with_mask[:, :, 3]
+
+    return im_sub, mask
+
+
+def refine_line_aug(subset='train', aug_times=1, save_img=False,
+                    save_root=None, do_rot=False, random_count=0,
+                    crop_height=512, crop_width=512):
+    save_dir = '%s/%s/' % (save_root, subset)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    images_root = '%s/refine_line_aug_%d_%d/images/' % (save_dir, crop_height, crop_width)
+    images_shown_root = '%s/refine_line_aug_%d_%d/images_shown/' % (save_dir, crop_height, crop_width)
+    labels_root = '%s/refine_line_aug_%d_%d/annotations/' % (save_dir, crop_height, crop_width)
+    for p in [images_root, labels_root, images_shown_root]:
+        if not os.path.exists(p):
+            os.makedirs(p)
+
+    print('extract bg images ...')
+    bg_images_dir = extract_bg_images(subset, save_dir, random_count)
+    print(bg_images_dir)
+
+    bg_filenames = glob.glob(bg_images_dir + '/*.png')
+
+    lines = []
+    for aug_time in range(aug_times):
+        if len(bg_filenames) > 10000:
+            bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=10000, replace=False)
+        else:
+            bg_indices = np.arange(len(bg_filenames))
+
+        for bg_ind in bg_indices:
+            bg_filename = bg_filenames[bg_ind]
+            file_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
+            bg = cv2.imread(bg_filename)
+
+            if min(bg.shape[:2]) < 512:
+                continue
+
+            im1, mask1 = add_line_to_image(bg, crop_height, crop_width)
+
+            if im1 is None:
+                continue
+            if mask1.sum() < 10:
+                continue
+
+            save_prefix = '%s_%d_%010d' % (file_prefix, aug_time, bg_ind)
+            cv2.imwrite('%s/%s.jpg' % (images_root, save_prefix), im1)  # 不能有中文
+            cv2.imwrite('%s/%s.png' % (labels_root, save_prefix), mask1)
+
+            lines.append('%s\n' % save_prefix)
+
+            if np.random.rand() < 0.01:
+                cv2.imwrite('%s/%s.jpg' % (images_shown_root, save_prefix),
+                            np.concatenate([im1, 255 * np.stack([mask1, mask1, mask1], axis=2)],
+                                           axis=1))  # 不能有中文
+    if len(lines) > 0:
+        with open('%s/refine_line_aug_%d_%d/%s.txt' % (save_dir, crop_height, crop_width, subset), 'w') as fp:
+            fp.writelines(lines)
+
+
 def main(subset='train', aug_times=1, save_img=False,
          save_root=None, do_rot=False, random_count=0):
     hostname = socket.gethostname()
@@ -990,24 +1097,43 @@ def main(subset='train', aug_times=1, save_img=False,
             json.dump(data_dict, f_out, indent=4)
 
 
+def get_args_parser():
+    parser = argparse.ArgumentParser('gd augmentation', add_help=False)
+    parser.add_argument('--save_root', default='', type=str)
+    parser.add_argument('--aug_type', default='', type=str)
+    parser.add_argument('--aug_times', default=1, type=int)
+    parser.add_argument('--random_count', default=1, type=int)
+    parser.add_argument('--save_img', default=False, action='store_true')
+    parser.add_argument('--do_rotate', default=False, action='store_true')
+    parser.add_argument('--crop_height', default=512, type=int)
+    parser.add_argument('--crop_width', default=512, type=int)
+
+    return parser
+
+
 if __name__ == '__main__':
 
-    print(sys.argv)
-    if len(sys.argv) != 6:
-        print('python ./this_script.py aug_type aug_times(int) save_img(int) do_rot(int) random_count')
-        sys.exit(-1)
-    aug_type = sys.argv[1]
-    aug_times = int(sys.argv[2])
-    save_img = int(sys.argv[3]) != 0
-    do_rot = int(sys.argv[4]) != 0
-    random_count = int(sys.argv[5])
+    parser = argparse.ArgumentParser('gd augmentation', parents=[get_args_parser()])
+    args = parser.parse_args()
 
     hostname = socket.gethostname()
+    save_root = args.save_root
+    aug_type = args.aug_type
+    aug_times = args.aug_times
+    do_rot = args.do_rotate
+    save_img = args.save_img
+    random_count = args.random_count
+    crop_height = args.crop_height
+    crop_width = args.crop_width
 
-    if hostname == 'master':
-        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes_%s' % (aug_times, do_rot, aug_type)
-    else:
-        save_root = 'E:/gd_newAug%d_Rot%d_4classes_%s' % (aug_times, do_rot, aug_type)
+    # if hostname == 'master':
+    #     save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes_%s' % (aug_times, do_rot, aug_type)
+    # else:
+    #     save_root = 'E:/gd_newAug%d_Rot%d_4classes_%s' % (aug_times, do_rot, aug_type)
+
+    if save_root == '':
+        print('set the correct save_root')
+        sys.exit(-1)
 
     if aug_type == 'v1':
 
@@ -1024,3 +1150,16 @@ if __name__ == '__main__':
                              do_rot=do_rot, random_count=random_count)
         compose_fg_bg_images(subset='val', aug_times=1, save_img=True, save_root=save_root,
                              do_rot=do_rot, random_count=4)
+
+    elif aug_type == 'refine_line_v1':
+
+        refine_line_aug(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root,
+                             do_rot=do_rot, random_count=random_count,
+                        crop_height=crop_height, crop_width=crop_width)
+        refine_line_aug(subset='val', aug_times=1, save_img=save_img, save_root=save_root,
+                             do_rot=do_rot, random_count=random_count,
+                        crop_height=crop_height, crop_width=crop_width)
+    else:
+        print('wrong aug type')
+        sys.exit(-1)
+
