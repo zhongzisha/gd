@@ -297,8 +297,6 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False):
                             if area1 >= 0.6 * area:
                                 tmp_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
 
-
-
                     if len(tmp_boxes) > 0:
                         cutout = []
                         for bi in range(3):
@@ -326,11 +324,11 @@ def extract_bg_images(subset='train', save_root=None, random_count=0):
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
         gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
 
-    save_root = '%s/bg_images/' % save_root
-    if not os.path.exists(save_root):
-        os.makedirs(save_root)
-    elif len(glob.glob(save_root + '/*.png')) > 0:
-        return save_root
+    save_dir = '%s/%s_bg_images/' % (save_root, subset)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    elif len(glob.glob(save_dir + '/*.png')) > 0:
+        return save_dir
 
     tiffiles = None
     if os.path.isfile(source) and source[-4:] == '.txt':
@@ -480,13 +478,13 @@ def extract_bg_images(subset='train', save_root=None, random_count=0):
                     cutout.append(band_data)
                 im1 = np.stack(cutout, -1)  # RGB
 
-                cv2.imencode('.png', im1)[1].tofile('%s/bg_%d_%d.png' % (save_root, ti, j))
+                cv2.imencode('.png', im1)[1].tofile('%s/bg_%d_%d.png' % (save_dir, ti, j))
 
             del mask
-    return save_root
+    return save_dir
 
 
-def compose_fg_bg_v1(bg, fg_images_list, fg_boxes_list, inds):   # not good
+def compose_fg_bg_v1(bg, fg_images_list, fg_boxes_list, inds):  # not good
     # bg: HxWx3 RGB
     # fg_ims: list of RGB images [hxwx3]
     # fg_boxes: list of boxes [nx5]
@@ -507,20 +505,20 @@ def compose_fg_bg_v1(bg, fg_images_list, fg_boxes_list, inds):   # not good
         xc, yc = -1, -1
         for step in range(10):
             mask1 = np.zeros((H, W), dtype=np.uint8)
-            xc = np.random.randint(low=int(w//2+1), high=int(W-w//2-1))
-            yc = np.random.randint(low=int(h//2+1), high=int(H-h//2-1))
-            left = xc - w//2
-            up = yc - h//2
-            mask1[up:(up+h), left:(left+h)] = 1
+            xc = np.random.randint(low=int(w // 2 + 1), high=int(W - w // 2 - 1))
+            yc = np.random.randint(low=int(h // 2 + 1), high=int(H - h // 2 - 1))
+            left = xc - w // 2
+            up = yc - h // 2
+            mask1[up:(up + h), left:(left + h)] = 1
             area1 = len(np.where(mask & mask1)[0])
             if area1 < 0.4 * area:
                 is_ok = True
                 break
         if is_ok:
-            left = xc - w//2
-            up = yc - h//2
+            left = xc - w // 2
+            up = yc - h // 2
             alpha = alpha_map(W, H, w, h, xc, yc)
-            fg[up:(up+h), left:(left+w), :] = fg_im
+            fg[up:(up + h), left:(left + w), :] = fg_im
             mask[up:(up + h), left:(left + h)] = 1
             im = alpha * fg + (1 - alpha) * im
             im = im.astype(np.uint8)
@@ -535,7 +533,7 @@ def compose_fg_bg_v1(bg, fg_images_list, fg_boxes_list, inds):   # not good
         return [], []
 
 
-def compose_fg_bg(bg, fg_images_list, fg_boxes_list, inds):   # not good
+def compose_fg_bg(bg, fg_images_list, fg_boxes_list, inds):  # not good
     # bg: HxWx3 RGB
     # fg_ims: list of RGB images [hxwx3]
     # fg_boxes: list of boxes [nx5]
@@ -567,30 +565,31 @@ def compose_fg_bg(bg, fg_images_list, fg_boxes_list, inds):   # not good
         is_ok = False
         xc, yc = -1, -1
         for step in range(10):
-            xc = np.random.randint(low=int(w//2+1), high=int(W-w//2-1))
-            yc = np.random.randint(low=int(h//2+1), high=int(H-h//2-1))
-            left = xc - w//2
-            up = yc - h//2
+            xc = np.random.randint(low=int(w // 2 + 1), high=int(W - w // 2 - 1))
+            yc = np.random.randint(low=int(h // 2 + 1), high=int(H - h // 2 - 1))
+            left = xc - w // 2
+            up = yc - h // 2
             if len(boxes) == 0:
                 is_ok = True
                 break
             mask1 = np.zeros((H, W), dtype=np.uint8)
-            mask1[up:(up+h), left:(left+w)] = 1
+            mask1[up:(up + h), left:(left + w)] = 1
             area1 = len(np.where(mask & mask1)[0])
             if area1 < 10:
                 is_ok = True
                 break
         if is_ok:
-            left = xc - w//2
-            up = yc - h//2
+            left = xc - w // 2
+            up = yc - h // 2
 
             fg = np.zeros((H, W, 3), dtype=np.uint8)
             mask1 = np.zeros((H, W), dtype=np.uint8)
-            fg[up:(up+h), left:(left+w), :] = fg_im
-            mask[up:(up+h), left:(left+w)] = 1
+            fg[up:(up + h), left:(left + w), :] = fg_im
+            mask[up:(up + h), left:(left + w)] = 1
             mask1_im = Image.fromarray(mask1)
             draw1 = ImageDraw.Draw(mask1_im)
-            draw1.rectangle((left+fg_boxes_xmin, up+fg_boxes_ymin, left+fg_boxes_xmax, up+fg_boxes_ymax), fill=255)
+            draw1.rectangle((left + fg_boxes_xmin, up + fg_boxes_ymin, left + fg_boxes_xmax, up + fg_boxes_ymax),
+                            fill=255)
             mask1_im_blur = mask1_im.filter(ImageFilter.GaussianBlur(blur_radius))
             im.paste(Image.fromarray(fg), (0, 0), mask1_im_blur)
 
@@ -604,8 +603,9 @@ def compose_fg_bg(bg, fg_images_list, fg_boxes_list, inds):   # not good
         return [], []
 
 
-def compose_fg_bg_images(subset='train', aug_times=1, save_img=False,
-                         save_root=None, do_rot=False, random_count=0):
+def compose_fg_bg_images(subset='train', aug_times=1, save_root=None,
+                         fg_images_filename=None, fg_boxes_filename=None,
+                         bg_images_dir=None):
     save_root = '%s/%s/' % (save_root, subset)
     if not os.path.exists(save_root):
         os.makedirs(save_root)
@@ -616,12 +616,6 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_img=False,
     for p in [save_img_path, save_txt_path, save_img_shown_path]:
         if not os.path.exists(p):
             os.makedirs(p)
-
-    print('extract fg images ...')
-    fg_images_filename, fg_boxes_filename = extract_fg_images(subset, save_root)
-
-    print('extract bg images ...')
-    bg_images_dir = extract_bg_images(subset, save_root, random_count)
 
     print(fg_images_filename)
     print(fg_images_filename)
@@ -645,6 +639,7 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_img=False,
 
     colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
 
+    aug_times = aug_times if subset == 'train' else 1
     bg_filenames = glob.glob(bg_images_dir + '/*.png')
 
     for aug_time in range(aug_times):
@@ -742,15 +737,33 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_img=False,
             json.dump(data_dict, f_out, indent=4)
 
 
+def add_line(im, mask, p0s, p1s):
+    line_width = np.random.randint(1, 3)
+    for p0, p1 in zip(p0s, p1s):
+
+        d = np.sqrt((p0[0] - p1[0])**2 + (p0[1] - p1[1])**2)
+        if d < 30:
+            continue
+
+        r = np.random.randint(160, 220)
+        g = r - np.random.randint(1, 10)
+        b = g - np.random.randint(1, 10)
+
+        cv2.line(im, p0, p1, color=(r, g, b), thickness=line_width)
+        cv2.line(mask, p0, p1, color=(1, 0, 0), thickness=line_width)
+
+    return im, mask
+
+
 def add_line_to_image(im, crop_width, crop_height):
     # extract sub image from im and add line to the image
     # return the croppped image and its line mask
     H, W = im.shape[:2]
     # im_sub = im[(H//2-crop_height//2):(H//2-crop_height//2+crop_height),
     #          (W//2-crop_width//2):(W//2-crop_width//2+crop_width), :]
-    xc = np.random.randint(low=(crop_width+1)//2, high=(W - (crop_width+1)//2 -1))
-    yc = np.random.randint(low=(crop_height+1)//2, high=(H - (crop_height+1)//2 -1))
-    im_sub = im[(yc-crop_height//2):(yc-crop_height//2+crop_height),
+    xc = np.random.randint(low=(crop_width + 1) // 2, high=(W - (crop_width + 1) // 2 - 1))
+    yc = np.random.randint(low=(crop_height + 1) // 2, high=(H - (crop_height + 1) // 2 - 1))
+    im_sub = im[(yc - crop_height // 2):(yc - crop_height // 2 + crop_height),
              (xc - crop_width // 2):(xc - crop_width // 2 + crop_width),
              :]
     if len(np.unique(im_sub)) < 50:
@@ -759,63 +772,103 @@ def add_line_to_image(im, crop_width, crop_height):
     H, W = crop_height, crop_width
     mask = np.zeros((H, W), dtype=np.uint8)
     for step in range(np.random.randint(2, 5)):
-        r = np.random.randint(180, 230)
-        g = r - np.random.randint(1, 7)
-        b = g - np.random.randint(1, 7)
-        line_width = np.random.randint(1, 4)
-
         y = np.random.randint(0, H - 1, size=2)
         x = np.random.randint(0, W - 1, size=2)
-        cv2.line(im_sub, (x[0], y[0]), (x[1], y[1]), color=(b, g, r), thickness=line_width)
 
-        cv2.line(mask, (x[0], y[0]), (x[1], y[1]), color=(1, 0, 0), thickness=line_width)
+        x1, x2 = x
+        y1, y2 = y
+        if abs(x1 - x2) == 1 and (20 < x1 < W - 20):
+            expand = np.random.randint(low=10, high=x1-9, size=2)
+            x1_l = x1 - expand[0]
+            x1_r = x1 + expand[1]
+            p0s, p1s = [], []
+            if x1_l >= 3:
+                p0s.append((x1_l, 0))
+                p1s.append((x1_l, H-1))
+            p0s.append((x1, 0))
+            p1s.append((x1, H-1))
+            if x1_r <= W-3:
+                p0s.append((x1_r, 0))
+                p1s.append((x1_r, H-1))
 
-        # TODO zzs draw paralle lineTODO zzs
+            im_sub, mask = add_line(im_sub, mask, p0s, p1s)
+        elif abs(y1 - y2) == 1 and (20 < y1 < H - 20):
+            expand = np.random.randint(low=10, high=y1-9, size=2)
+            y1_u = y1 - expand[0]
+            y1_b = y1 + expand[1]
+            p0s, p1s = [], []
+            if y1_u >= 3:
+                p0s.append((0, y1_u))
+                p1s.append((W - 1, y1_u))
+            p0s.append((0, y1))
+            p1s.append((W - 1, y1))
+            if y1_b <= H - 3:
+                p0s.append((0, y1_b))
+                p1s.append((W-1, y1_b))
+
+            im_sub, mask = add_line(im_sub, mask, p0s, p1s)
+        elif abs(x1 - x2) > 10 and abs(y1 - y2) > 10:
+            k = (y1 - y2) / (x2 - x1)
+            b = - k * x1 - y1
+            # (y1 - y2)x + (x1 - x2)y + x1y2 -y1x2 = 0
+            expand = np.random.randint(low=10, high=100, size=2)
+            b_up = b - expand[0]
+            b_down = b + expand[1]
+            if abs(k) > 1:
+                # y=3, y=H-3
+                p0s = [(int((-3 - bb)/k), 3) for bb in [b, b_up, b_down]]
+                p1s = [(int((-H+3 - bb)/k), H-3) for bb in [b, b_up, b_down]]
+                im_sub, mask = add_line(im_sub, mask, p0s, p1s)
+            elif 1 >= abs(k) > 0.05:
+                # x=3, x=W-3
+                p0s = [(3, int(-k*3-bb)) for bb in [b, b_up, b_down]]
+                p1s = [(W-3, int(-k*(W-3)-bb)) for bb in [b, b_up, b_down]]
+                im_sub, mask = add_line(im_sub, mask, p0s, p1s)
 
     # blur the image
-    ksize = np.random.choice([3, 5, 7])
     prob = np.random.rand()
-    if prob < 0.3:
+    if prob < 0.5:
+        ksize = np.random.choice([3, 5, 7])
         sigmas = np.arange(0.5, ksize, step=0.5)
         im_sub = cv2.GaussianBlur(im_sub, ksize=(ksize, ksize),
                                   sigmaX=np.random.choice(sigmas),
                                   sigmaY=np.random.choice(sigmas))
-    elif 0.3 <= prob <= 0.7:
-        im_sub = cv2.medianBlur(im_sub, ksize=ksize)
-    else:
+    elif 0.5 <= prob <= 0.8:
+    #     ksize = np.random.choice([3, 5])
+    #     im_sub = cv2.medianBlur(im_sub, ksize=ksize)
+    # else:
         im_sub_with_mask = np.concatenate([im_sub, mask[:, :, None]], axis=2)
         im_sub_with_mask = elastic_transform_v2(im_sub_with_mask, im_sub.shape[1] * 2,
-                                                im_sub.shape[1] * np.random.randint(low=4, high=10)/100,
-                                                im_sub.shape[1] * np.random.randint(low=4, high=10)/100)
+                                                im_sub.shape[1] * np.random.randint(low=4, high=8) / 100,
+                                                im_sub.shape[1] * np.random.randint(low=4, high=8) / 100)
         im_sub, mask = im_sub_with_mask[:, :, :3], im_sub_with_mask[:, :, 3]
 
     return im_sub, mask
 
 
-def refine_line_aug(subset='train', aug_times=1, save_img=False,
-                    save_root=None, do_rot=False, random_count=0,
-                    crop_height=512, crop_width=512):
+def refine_line_aug(subset='train', aug_times=1,
+                    save_root=None,
+                    crop_height=512, crop_width=512,
+                    fg_images_filename=None, fg_boxes_filename=None,
+                    bg_images_dir=None):
     save_dir = '%s/%s/' % (save_root, subset)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    images_root = '%s/refine_line_aug_%d_%d/images/' % (save_dir, crop_height, crop_width)
-    images_shown_root = '%s/refine_line_aug_%d_%d/images_shown/' % (save_dir, crop_height, crop_width)
-    labels_root = '%s/refine_line_aug_%d_%d/annotations/' % (save_dir, crop_height, crop_width)
+    images_root = '%s/images/' % (save_dir)
+    images_shown_root = '%s/images_shown/' % (save_dir)
+    labels_root = '%s/annotations/' % (save_dir)
     for p in [images_root, labels_root, images_shown_root]:
         if not os.path.exists(p):
             os.makedirs(p)
 
-    print('extract bg images ...')
-    bg_images_dir = extract_bg_images(subset, save_dir, random_count)
-    print(bg_images_dir)
-
+    aug_times = aug_times if subset == 'train' else 1
     bg_filenames = glob.glob(bg_images_dir + '/*.png')
 
     lines = []
     for aug_time in range(aug_times):
-        if len(bg_filenames) > 10000:
-            bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=10000, replace=False)
+        if len(bg_filenames) > 1000:
+            bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=1000, replace=False)
         else:
             bg_indices = np.arange(len(bg_filenames))
 
@@ -840,17 +893,16 @@ def refine_line_aug(subset='train', aug_times=1, save_img=False,
 
             lines.append('%s\n' % save_prefix)
 
-            if np.random.rand() < 0.01:
+            if True: #np.random.rand() < 0.01:
                 cv2.imwrite('%s/%s.jpg' % (images_shown_root, save_prefix),
                             np.concatenate([im1, 255 * np.stack([mask1, mask1, mask1], axis=2)],
                                            axis=1))  # 不能有中文
     if len(lines) > 0:
-        with open('%s/refine_line_aug_%d_%d/%s.txt' % (save_dir, crop_height, crop_width, subset), 'w') as fp:
+        with open('%s/%s.txt' % (save_root, subset), 'w') as fp:
             fp.writelines(lines)
 
 
-def main(subset='train', aug_times=1, save_img=False,
-         save_root=None, do_rot=False, random_count=0):
+def main(subset='train', aug_times=1, save_img=False, save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -859,16 +911,17 @@ def main(subset='train', aug_times=1, save_img=False,
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
         gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
 
-    save_root = '%s/%s/' % (save_root, subset)
-    if not os.path.exists(save_root):
-        os.makedirs(save_root)
+    save_dir = '%s/%s/' % (save_root, subset)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
+    aug_times = aug_times if subset == 'train' else 1
     gt_postfix = '_gt_5.xml'
     valid_labels_set = [1, 2, 3, 4]
 
-    save_img_path = '%s/images/' % save_root
-    save_img_shown_path = '%s/images_shown/' % save_root
-    save_txt_path = '%s/labels/' % save_root
+    save_img_path = '%s/images/' % save_dir
+    save_img_shown_path = '%s/images_shown/' % save_dir
+    save_txt_path = '%s/labels/' % save_dir
     for p in [save_img_path, save_txt_path, save_img_shown_path]:
         if not os.path.exists(p):
             os.makedirs(p)
@@ -1090,16 +1143,17 @@ def main(subset='train', aug_times=1, save_img=False,
                     # ims.append(im)
 
     if len(list_lines) > 0:
-        with open(save_root + '/%s.txt' % subset, 'w') as fp:
+        with open(save_dir + '/%s.txt' % subset, 'w') as fp:
             fp.writelines(list_lines)
 
-        with open(save_root + '/%s.json' % subset, 'w') as f_out:
+        with open(save_dir + '/%s.json' % subset, 'w') as f_out:
             json.dump(data_dict, f_out, indent=4)
 
 
 def get_args_parser():
     parser = argparse.ArgumentParser('gd augmentation', add_help=False)
-    parser.add_argument('--save_root', default='', type=str)
+    parser.add_argument('--cached_data_path', default='', type=str)
+    parser.add_argument('--subset', default='train', type=str)
     parser.add_argument('--aug_type', default='', type=str)
     parser.add_argument('--aug_times', default=1, type=int)
     parser.add_argument('--random_count', default=1, type=int)
@@ -1117,7 +1171,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     hostname = socket.gethostname()
-    save_root = args.save_root
+    subset = args.subset
+    cached_data_path = args.cached_data_path
     aug_type = args.aug_type
     aug_times = args.aug_times
     do_rot = args.do_rotate
@@ -1126,40 +1181,67 @@ if __name__ == '__main__':
     crop_height = args.crop_height
     crop_width = args.crop_width
 
-    # if hostname == 'master':
-    #     save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes_%s' % (aug_times, do_rot, aug_type)
-    # else:
-    #     save_root = 'E:/gd_newAug%d_Rot%d_4classes_%s' % (aug_times, do_rot, aug_type)
+    if hostname == 'master':
+        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rot)
+    else:
+        save_root = 'E:/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rot)
 
-    if save_root == '':
-        print('set the correct save_root')
-        sys.exit(-1)
+    """
+    cached_data_path/train_fg_images.npy
+    cached_data_path/train_fg_boxes.npy
+    cached_data_path/val_fg_images.npy
+    cached_data_path/val_fg_boxes.npy
+    cached_data_path/train_bg_images/
+    cached_data_path/val_bg_images/
+    """
+    print('extract fg images ...')
+    fg_images_filename, fg_boxes_filename = extract_fg_images(subset, cached_data_path)
+    print('extract bg images ...')
+    bg_images_dir = extract_bg_images(subset, cached_data_path, random_count)
 
-    if aug_type == 'v1':
-
+    print('doing augmentation ...')
+    if aug_type == 'box_aug_v1':
         # TODO zzs, implement the rotate augmentation
+        # in this augmentation, just use the crop with random shift
+        # save_root/box_aug_v1/train/images/*.jpg
+        # save_root/box_aug_v1/train/labels/*.txt
+        # save_root/box_aug_v1/train/train.txt
+        # save_root/box_aug_v1/val/images/*.jpg
+        # save_root/box_aug_v1/val/labels/*.txt
+        # save_root/box_aug_v1/val/val.txt
+        save_root = '%s/%s' % (save_root, aug_type)
+        main(subset=subset, aug_times=aug_times, save_img=save_img, save_root=save_root)
 
-        main(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root,
-             do_rot=do_rot, random_count=random_count)
-        main(subset='val', aug_times=2, save_img=save_img, save_root=save_root,
-             do_rot=do_rot, random_count=1)
+    elif aug_type == 'box_aug_v2':
+        # TODO zzs, to generate more fg image patches, add rotation compose
 
-    elif aug_type == 'v2':
-
-        compose_fg_bg_images(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root,
-                             do_rot=do_rot, random_count=random_count)
-        compose_fg_bg_images(subset='val', aug_times=1, save_img=True, save_root=save_root,
-                             do_rot=do_rot, random_count=4)
+        # save_root/box_aug_v2/train/images/*.jpg
+        # save_root/box_aug_v2/train/labels/*.txt
+        # save_root/box_aug_v2/train/train.txt
+        # save_root/box_aug_v2/val/images/*.jpg
+        # save_root/box_aug_v2/val/labels/*.txt
+        # save_root/box_aug_v2/val/val.txt
+        save_root = '%s/%s' % (save_root, aug_type)
+        compose_fg_bg_images(subset=subset, aug_times=aug_times, save_root=save_root,
+                             fg_images_filename=fg_images_filename,
+                             fg_boxes_filename=fg_boxes_filename,
+                             bg_images_dir=bg_images_dir)
 
     elif aug_type == 'refine_line_v1':
+        # TODO zzs need to generate the parallel lines like the wire
 
-        refine_line_aug(subset='train', aug_times=aug_times, save_img=save_img, save_root=save_root,
-                             do_rot=do_rot, random_count=random_count,
-                        crop_height=crop_height, crop_width=crop_width)
-        refine_line_aug(subset='val', aug_times=1, save_img=save_img, save_root=save_root,
-                             do_rot=do_rot, random_count=random_count,
-                        crop_height=crop_height, crop_width=crop_width)
+        # save_root/refine_line_v1_512_512/train/images/*.jpg
+        # save_root/refine_line_v1_512_512/train/annotations/*.png
+        # save_root/refine_line_v1_512_512/train/train.txt
+        # save_root/refine_line_v1_512_512/val/images/*.jpg
+        # save_root/refine_line_v1_512_512/val/annotations/*.png
+        # save_root/refine_line_v1_512_512/val/val.txt
+        save_root = '%s/%s_%d_%d' % (save_root, aug_type, crop_height, crop_width)
+        refine_line_aug(subset=subset, aug_times=aug_times, save_root=save_root,
+                        crop_height=crop_height, crop_width=crop_width,
+                        fg_images_filename=fg_images_filename,
+                        fg_boxes_filename=fg_boxes_filename,
+                        bg_images_dir=bg_images_dir)
     else:
         print('wrong aug type')
         sys.exit(-1)
-
