@@ -10,9 +10,9 @@ import argparse
 import psutil  # 获取可用内存
 import numpy as np
 import torch
-from yoloV5.myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, \
-    compute_offsets, save_predictions_to_envi_xml, LoadImages
-from yoloV5.utils.general import xyxy2xywh, xywh2xyxy, box_iou
+from myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, \
+    compute_offsets, save_predictions_to_envi_xml, LoadImages, \
+    xyxy2xywh, xywh2xyxy, box_iou
 
 """
 从*_gt_5.xml标注文件中提取第5类标签，提取image patches进行块分类
@@ -63,7 +63,7 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info):
 
 def main(subset='train'):
     source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
-    gt_dir = 'E:/gddata/aerial'    # *_gt_5.xml保存在这个目录下了
+    gt_dir = 'F:/gddata/aerial'    # *_gt_5.xml保存在这个目录下了
     save_root = 'E:/line_patches_gt/%s' % (subset)
     if not os.path.exists(save_root):
         os.makedirs(save_root + "/line")
@@ -81,6 +81,8 @@ def main(subset='train'):
     gt_gap = 128
 
     lines = []
+
+    prefixes = []
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -260,11 +262,12 @@ def main(subset='train'):
                     if ious[j].max() > 0.01:
                         save_filename = '%s/line/%03d_%010d.jpg' % (save_root, ti, j)
                         lines.append('%s 1\n' % save_filename.replace('E:/line_patches_gt/', ''))
+                        prefixes.append('%03d_%010d\n'%(ti, j))
                     else:
                         save_filename = '%s/nonline/%03d_%010d.jpg' % (save_root, ti, j)
                         lines.append('%s 0\n' % save_filename.replace('E:/line_patches_gt/', ''))
 
-                    cv2.imwrite(save_filename, im)  # 不能有中文
+                    cv2.imwrite(save_filename, im[:, :, ::-1])  # RGB-->BGR
 
                     # im = im[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
                     # im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32
@@ -274,6 +277,9 @@ def main(subset='train'):
     if len(lines) > 0:
         with open(save_root + '/%s_list.txt' % subset, 'w') as fp:
             fp.writelines(lines)
+    if len(prefixes) > 0:
+        with open(save_root + '/%s.txt' % subset, 'w') as fp:
+            fp.writelines(prefixes)
 
 
 if __name__ == '__main__':

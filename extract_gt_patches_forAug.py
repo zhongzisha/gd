@@ -347,17 +347,13 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
 
     w1 = w * 1.1 + 16
     h1 = h * 1.1 + 16
-    xmin, xmax = xc - w1//2, xc + w1//2
-    ymin, ymax = yc - h1//2, yc + h1//2
-    xmin = int(max(1, xmin))
-    xmax = int(min(W-1, xmax))
-    ymin = int(max(1, ymin))
-    ymax = int(min(H-1, ymax))
+    xmin1, xmax1 = xc - w1//2, xc + w1//2
+    ymin1, ymax1 = yc - h1//2, yc + h1//2
+    xmin1 = int(max(1, xmin1))
+    xmax1 = int(min(W-1, xmax1))
+    ymin1 = int(max(1, ymin1))
+    ymax1 = int(min(H-1, ymax1))
     points = []
-    points.append(Keypoint(x=xmin, y=ymin))
-    points.append(Keypoint(x=xmax, y=ymin))
-    points.append(Keypoint(x=xmax, y=ymax))
-    points.append(Keypoint(x=xmin, y=ymax))
     for box in boxes:
         xmin, ymin, xmax, ymax, label = box
         points.append(Keypoint(x=xmin, y=ymin))
@@ -366,11 +362,20 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
         points.append(Keypoint(x=xmin, y=ymax))
     kps = KeypointsOnImage(points, shape=image.shape)
 
+    if False:
+        save_filename = 'E:/fg_images_shown/fg_%d_%d_%d.jpg' % (ti, j, 0)
+        tmp_img = image[ymin1:ymax1, xmin1:xmax1, :].copy()
+        for box in np.array(boxes).reshape((-1, 5)).astype(np.int32):
+            x1, y1, x2, y2, label = box
+            cv2.rectangle(tmp_img, (x1, y1), (x2, y2), color=(255, 255, 0), thickness=2)
+            cv2.putText(tmp_img, str(label), (x1, y1), fontFace=1, fontScale=1, color=(0, 255, 255), thickness=1)
+        cv2.imwrite(save_filename, tmp_img[:, :, ::-1])
+
     ims_list = []
     gt_boxes_list = []
-    for degree in range(10, 360, 10):
+    for degree in range(30, 360, 30):
         seq = iaa.Sequential([
-            iaa.Affine(rotate=degree, fit_output=True)
+            iaa.Affine(rotate=degree, fit_output=False)
         ])
 
         # Augment keypoints and images.
@@ -380,23 +385,20 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
         # use after.x_int and after.y_int to get rounded integer coordinates
         quads = []
         for i in range(len(kps.keypoints) // 4):
-            p1 = kps_aug.keypoints[i]
-            p2 = kps_aug.keypoints[i+1]
-            p3 = kps_aug.keypoints[i+2]
-            p4 = kps_aug.keypoints[i+3]
+            p1 = kps_aug.keypoints[4*i]
+            p2 = kps_aug.keypoints[4*i+1]
+            p3 = kps_aug.keypoints[4*i+2]
+            p4 = kps_aug.keypoints[4*i+3]
             quads.append([[p1.x, p1.y],[p2.x, p2.y],[p3.x, p3.y],[p4.x, p4.y]])
         quads = np.array(quads).reshape((-1, 4, 2)).astype(np.int32)
 
-        xmin1 = np.min(quads[0, :, 0])
-        ymin1 = np.min(quads[0, :, 1])
-        xmax1 = np.max(quads[0, :, 0])
-        ymax1 = np.max(quads[0, :, 1])
         imgpoly = shgeo.Polygon([(xmin1, ymin1),
                                  (xmax1, ymin1),
                                  (xmax1, ymax1),
                                  (xmin1, ymax1)])
+
         valid_boxes = []
-        for qi, quad in enumerate(quads[1:]):
+        for qi, quad in enumerate(quads):
             tmp_poly = shgeo.Polygon([(quad[0, 0], quad[0, 1]),
                                       (quad[1, 0], quad[1, 1]),
                                       (quad[2, 0], quad[2, 1]),
@@ -421,7 +423,7 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
             ims_list.append(image_aug[ymin1:ymax1, xmin1:xmax1, :])
             gt_boxes_list.append(np.array(valid_boxes).reshape((-1, 5)))
 
-            if True:
+            if False:
                 save_filename = 'E:/fg_images_shown/fg_%d_%d_%d.jpg' %(ti, j, degree)
                 tmp_img = image_aug[ymin1:ymax1, xmin1:xmax1, :]
                 for box in np.array(valid_boxes).reshape((-1, 5)).astype(np.int32):
@@ -447,8 +449,12 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False,
     if not update_cache and os.path.exists(fg_images_filename) and os.path.exists(fg_boxes_filename):
         return fg_images_filename, fg_boxes_filename
 
-    if os.path.exists(save_root):
-        shutil.rmtree(save_root, ignore_errors=True)
+    # if os.path.exists(save_root):
+    #     shutil.rmtree(save_root, ignore_errors=True)
+    if os.path.exists(fg_images_filename):
+        os.remove(fg_images_filename)
+    if os.path.exists(fg_boxes_filename):
+        os.remove(fg_boxes_filename)
     if not os.path.exists(save_root):
         os.makedirs(save_root)
 
@@ -516,7 +522,7 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False,
                     length = max(width0, height0)
                     width = length * 2 + 32
                     height = length * 2 + 32
-                    width1 = width
+                    width0 = width
                     xoffset = max(1, xc - width // 2)
                     yoffset = max(1, yc - height // 2)
                     if xoffset + width > orig_width:
@@ -559,23 +565,22 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False,
                                                          win_ysize=int(height))
                             cutout.append(band_data)
                         cutout = np.stack(cutout, -1)  # this is RGB
+                        cache_patches_list.append(cutout)
+                        cache_boxes_list.append(np.array(tmp_boxes).reshape(-1, 5))
 
                         if do_rotate:
                             print('fg ', ti, j)
                             patches_list, boxes_list = extract_patches_and_boxes(cutout, np.array(tmp_boxes).reshape(-1, 5),
-                                                                                 xc-xoffset, yc-yoffset, width1, width1,
+                                                                                 xc-xoffset, yc-yoffset, width0, width0,
                                                                                  ti, j)
 
                             if len(boxes_list) > 0:
                                 cache_patches_list += patches_list
                                 cache_boxes_list += boxes_list
-                        else:
-                            cache_patches_list.append(cutout)
-                            cache_boxes_list.append(np.array(tmp_boxes).reshape(-1, 5))
 
     if len(cache_patches_list) > 0:
-        np.save(fg_images_filename, cache_patches_list, allow_pickle=True)
-        np.save(fg_boxes_filename, cache_boxes_list, allow_pickle=True)
+        np.save(fg_images_filename, np.array(cache_patches_list, dtype=object), allow_pickle=True)
+        np.save(fg_boxes_filename, np.array(cache_boxes_list, dtype=object), allow_pickle=True)
     return fg_images_filename, fg_boxes_filename
 
 
@@ -908,9 +913,12 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_root=None,
     aug_times = aug_times if subset == 'train' else 1
     bg_filenames = glob.glob(bg_images_dir + '/*.png')
 
+    bins = np.arange(0, 256)
     for aug_time in range(aug_times):
-        if len(bg_filenames) > 5000:
-            bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=5000, replace=False)
+
+        np.random.seed(aug_time)
+        if len(bg_filenames) > 10000:
+            bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=10000, replace=False)
         else:
             bg_indices = np.arange(len(bg_filenames))
 
@@ -919,10 +927,16 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_root=None,
             file_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
             bg = cv2.imread(bg_filename)
 
-            if min(bg.shape[:2]) < 500 or max(bg.shape[:2]) > 2048:
+            bg_shape = bg.shape[:2]
+            if min(bg_shape) < 500 or max(bg_shape) > 2048:
                 continue
 
-            selected_fg_inds = np.random.choice(fg_inds, size=np.random.randint(1, 4))
+            hist, _ = np.histogram(bg[:, :, 0], bins=bins)
+            if (hist[np.argmax(hist)] / np.prod(bg_shape)) > 0.5:
+                continue
+
+            np.random.seed(aug_time * bg_ind)
+            selected_fg_inds = np.random.choice(fg_inds, size=np.random.randint(1, 5), replace=False)
 
             im, gt_boxes = compose_fg_bg(bg, fg_images_list, fg_boxes_list, selected_fg_inds)
 
@@ -1480,8 +1494,6 @@ if __name__ == '__main__':
                 cv2.putText(img, str(label), (x1, y1), fontFace=1, fontScale=1, color=(0, 255, 255), thickness=1)
             cv2.imwrite('%s/%10d.jpg'%(save_dir, fi), img)
             pass
-
-    sys.exit(-1)
 
     print('extract bg images ...')
     bg_images_dir = extract_bg_images(subset, cached_data_path, random_count, update_cache=update_cache)
