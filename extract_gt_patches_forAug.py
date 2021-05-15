@@ -333,6 +333,211 @@ def extract_fg_images_bak2(subset='train', save_root=None, do_rotate=False,
     return fg_images_filename, fg_boxes_filename
 
 
+def check_fg_images(subset='train', save_root=None):
+    hostname = socket.gethostname()
+    if hostname == 'master':
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
+    else:
+        source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
+        gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
+
+    save_dir = '%s/%s/' % (save_root, subset)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    save_img_path = '%s/images/' % save_dir
+    save_img_shown_path = '%s/images_shown/' % save_dir
+    save_txt_path = '%s/labels/' % save_dir
+    for p in [save_img_path, save_txt_path, save_img_shown_path]:
+        if not os.path.exists(p):
+            os.makedirs(p)
+
+    list_lines = []
+    data_dict = {}
+    data_dict['images'] = []
+    data_dict['categories'] = []
+    data_dict['annotations'] = []
+    for idex, name in enumerate(["1", "2", "3", "4"]):  # 1,2,3 is gan, 4 is jueyuanzi
+        single_cat = {'id': idex + 1, 'name': name, 'supercategory': name}
+        data_dict['categories'].append(single_cat)
+
+    inst_count = 1
+    image_id = 1
+
+    gt_postfix = '_gt_5.xml'
+    valid_labels_set = [1, 2, 3, 4]
+    save_img = True
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    cache_label_list = [1, 2, 3]
+    colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
+
+    for ti in range(len(tiffiles)):
+        tiffile = tiffiles[ti]
+        file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+
+        print(ti, '=' * 80)
+        print(file_prefix)
+
+        ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+        print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                     ds.GetDriver().LongName))
+        print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                            ds.RasterYSize,
+                                            ds.RasterCount))
+        print("Projection is {}".format(ds.GetProjection()))
+        projection = ds.GetProjection()
+        projection_sr = osr.SpatialReference(wkt=projection)
+        projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+        geotransform = ds.GetGeoTransform()
+        xOrigin = geotransform[0]
+        yOrigin = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+        if geotransform:
+            print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+            print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+            print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+
+        gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
+
+        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+                                      valid_labels=valid_labels_set)
+
+        if len(gt_boxes) == 0:
+            continue
+
+        for j, (box, label) in enumerate(zip(gt_boxes, gt_labels)):  # per item
+            if label <= 3:  # 1, 2, 3
+                xmin0, ymin0, xmax0, ymax0 = box
+
+                # crop the gt_boxes patch and the gt_boxes within it and save them for further augmentation
+                if label in cache_label_list:
+                    xc = (xmin0 + xmax0) // 2
+                    yc = (ymin0 + ymax0) // 2
+                    width, height = xmax0 - xmin0, ymax0 - ymin0
+                    length = max(width, height)
+                    width = length * 1.1 + 32
+                    height = length * 1.1 + 32
+                    xoffset = max(1, xc - width // 2)
+                    yoffset = max(1, yc - height // 2)
+                    if xoffset + width > orig_width:
+                        width = orig_width - xoffset - 1
+                    if yoffset + height > orig_height:
+                        height = orig_height - yoffset - 1
+                    # find the gt_boxes within this box
+                    boxes = np.copy(gt_boxes)
+                    labels = np.copy(gt_labels)
+                    ious = box_iou_np(np.array([xoffset, yoffset, xoffset + width, yoffset + height],
+                                               dtype=np.float32).reshape(-1, 4),
+                                      boxes)
+                    idx2 = np.where(ious > 1e-8)[1]
+                    tmp_boxes = []
+                    if len(idx2) > 0:
+                        valid_boxes = boxes[idx2, :]
+                        valid_labels = labels[idx2]
+                        valid_boxes[:, [0, 2]] -= xoffset
+                        valid_boxes[:, [1, 3]] -= yoffset
+                        for box1, label1 in zip(valid_boxes.astype(np.int32), valid_labels):
+                            xmin, ymin, xmax, ymax = box1
+                            xmin1 = max(1, xmin)
+                            ymin1 = max(1, ymin)
+                            xmax1 = min(xmax, width - 1)
+                            ymax1 = min(ymax, height - 1)
+                            # here, check the new gt_box[xmin1, ymin1, xmax1, ymax1]
+                            # if the area of new gt_box is less than 0.6 of the original box, then remove this box and
+                            # record its position, to put it to zero in the image
+                            area1 = (xmax1 - xmin1) * (ymax1 - ymin1)
+                            area = (xmax - xmin) * (ymax - ymin)
+                            if area1 >= 0.6 * area:
+                                tmp_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
+
+                    if len(tmp_boxes) > 0:
+                        cutout = []
+                        for bi in range(3):
+                            band = ds.GetRasterBand(bi + 1)
+                            band_data = band.ReadAsArray(int(xoffset), int(yoffset),
+                                                         win_xsize=int(width),
+                                                         win_ysize=int(height))
+                            cutout.append(band_data)
+                        cutout = np.stack(cutout, -1)  # this is RGB
+                        sub_w = width
+                        sub_h = height
+
+                        save_prefix = '%d_%d' % (ti, j)
+
+                        # save image
+                        # for coco format
+                        single_image = {}
+                        single_image['file_name'] = save_prefix + '.jpg'
+                        single_image['id'] = image_id
+                        single_image['width'] = sub_w
+                        single_image['height'] = sub_h
+                        data_dict['images'].append(single_image)
+
+                        # for yolo format
+                        cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
+
+                        list_lines.append('./images/%s.jpg\n' % save_prefix)
+
+                        valid_lines = []
+                        for box2 in tmp_boxes:
+                            xmin, ymin, xmax, ymax, label = box2
+
+                            if save_img:
+                                cv2.rectangle(cutout, (int(xmin), int(ymin)), (int(xmax), int(ymax)),
+                                              color=colors[label], thickness=2)
+
+                            xc1 = int((xmin + xmax) / 2)
+                            yc1 = int((ymin + ymax) / 2)
+                            w1 = xmax - xmin
+                            h1 = ymax - ymin
+
+                            valid_lines.append(
+                                "%d %f %f %f %f\n" % (label - 1, xc1 / sub_w, yc1 / sub_h, w1 / sub_w, h1 / sub_h))
+
+                            # for coco format
+                            single_obj = {'area': int(w1 * h1),
+                                          'category_id': int(label),
+                                          'segmentation': []}
+                            single_obj['segmentation'].append(
+                                [int(xmin), int(ymin), int(xmax), int(ymin),
+                                 int(xmax), int(ymax), int(xmin), int(ymax)]
+                            )
+                            single_obj['iscrowd'] = 0
+
+                            single_obj['bbox'] = int(xmin), int(ymin), int(w1), int(h1)
+                            single_obj['image_id'] = image_id
+                            single_obj['id'] = inst_count
+                            data_dict['annotations'].append(single_obj)
+                            inst_count = inst_count + 1
+
+                        image_id = image_id + 1
+
+                        with open(save_txt_path + save_prefix + '.txt', 'w') as fp:
+                            fp.writelines(valid_lines)
+
+                        if save_img:
+                            cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
+
+    if len(list_lines) > 0:
+        with open(save_dir + '/%s.txt' % subset, 'w') as fp:
+            fp.writelines(list_lines)
+
+        with open(save_dir + '/%s.json' % subset, 'w') as f_out:
+            json.dump(data_dict, f_out, indent=4)
+
+
 def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
     # im: RGB HxWx3
     # boxes: nx5    xyxy,label
@@ -434,8 +639,7 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
     return ims_list, gt_boxes_list
 
 
-def extract_fg_images(subset='train', save_root=None, do_rotate=False,
-                      update_cache=False):
+def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_cache=False):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -915,14 +1119,15 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_root=None,
 
     bins = np.arange(0, 256)
     for aug_time in range(aug_times):
+        print('aug_time', aug_time)
 
-        np.random.seed(aug_time)
         if len(bg_filenames) > 10000:
             bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=10000, replace=False)
         else:
             bg_indices = np.arange(len(bg_filenames))
 
         for bg_ind in bg_indices:
+
             bg_filename = bg_filenames[bg_ind]
             file_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
             bg = cv2.imread(bg_filename)
@@ -935,15 +1140,17 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_root=None,
             if (hist[np.argmax(hist)] / np.prod(bg_shape)) > 0.5:
                 continue
 
-            np.random.seed(aug_time * bg_ind)
+            print('bg_ind', bg_ind)
             selected_fg_inds = np.random.choice(fg_inds, size=np.random.randint(1, 5), replace=False)
-
+            print('selected_fg_inds', selected_fg_inds)
             im, gt_boxes = compose_fg_bg(bg, fg_images_list, fg_boxes_list, selected_fg_inds)
 
             save_img = False
 
             # draw gt boxes
             if len(gt_boxes) > 0:
+                print('num_gt_boxes', len(gt_boxes))
+
                 save_prefix = '%s_%d' % (file_prefix, aug_time)
                 sub_h, sub_w = im.shape[:2]
 
@@ -1126,11 +1333,10 @@ def add_line_to_image(im, crop_width, crop_height):
     return im_sub, mask
 
 
-def refine_line_aug(subset='train', aug_times=1,
-                    save_root=None,
+def refine_line_aug(subset='train', aug_times=1, save_root=None,
                     crop_height=512, crop_width=512,
                     fg_images_filename=None, fg_boxes_filename=None,
-                    bg_images_dir=None):
+                    bg_images_dir=None, random_count=1000):
     save_dir = '%s/%s/' % (save_root, subset)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
@@ -1147,8 +1353,8 @@ def refine_line_aug(subset='train', aug_times=1,
 
     lines = []
     for aug_time in range(aug_times):
-        if len(bg_filenames) > 1000:
-            bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=1000, replace=False)
+        if len(bg_filenames) > random_count:
+            bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=random_count, replace=False)
         else:
             bg_indices = np.arange(len(bg_filenames))
 
@@ -1182,7 +1388,7 @@ def refine_line_aug(subset='train', aug_times=1,
             fp.writelines(lines)
 
 
-def main(subset='train', aug_times=1, save_img=False, save_root=None):
+def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -1468,6 +1674,11 @@ if __name__ == '__main__':
     else:
         save_root = 'E:/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
 
+    if aug_type == 'check_fg_images_v1':
+        save_root = '%s/%s' % (save_root, aug_type)
+        check_fg_images(subset=subset, save_root=save_root)
+        sys.exit(-1)
+
     """
     cached_data_path/train_fg_images.npy
     cached_data_path/train_fg_boxes.npy
@@ -1509,7 +1720,7 @@ if __name__ == '__main__':
         # save_root/box_aug_v1/val/labels/*.txt
         # save_root/box_aug_v1/val/val.txt
         save_root = '%s/%s' % (save_root, aug_type)
-        main(subset=subset, aug_times=aug_times, save_img=save_img, save_root=save_root)
+        box_aug_v1(subset=subset, aug_times=aug_times, save_img=save_img, save_root=save_root)
 
     elif aug_type == 'box_aug_v2':
         # TODO zzs, to generate more fg image patches, add rotation compose
@@ -1540,7 +1751,7 @@ if __name__ == '__main__':
                         crop_height=crop_height, crop_width=crop_width,
                         fg_images_filename=fg_images_filename,
                         fg_boxes_filename=fg_boxes_filename,
-                        bg_images_dir=bg_images_dir)
+                        bg_images_dir=bg_images_dir, random_count=random_count)
     else:
         print('wrong aug type')
         sys.exit(-1)
