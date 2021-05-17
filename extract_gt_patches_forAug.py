@@ -1242,21 +1242,25 @@ def add_line(im, mask, p0s, p1s):
     return im, mask
 
 
-def add_line_to_image(im, crop_width, crop_height):
+def add_line_to_image(im, crop_width=0, crop_height=0):
     # extract sub image from im and add line to the image
     # return the croppped image and its line mask
     H, W = im.shape[:2]
     # im_sub = im[(H//2-crop_height//2):(H//2-crop_height//2+crop_height),
     #          (W//2-crop_width//2):(W//2-crop_width//2+crop_width), :]
-    xc = np.random.randint(low=(crop_width + 1) // 2, high=(W - (crop_width + 1) // 2 - 1))
-    yc = np.random.randint(low=(crop_height + 1) // 2, high=(H - (crop_height + 1) // 2 - 1))
-    im_sub = im[(yc - crop_height // 2):(yc - crop_height // 2 + crop_height),
-             (xc - crop_width // 2):(xc - crop_width // 2 + crop_width),
-             :]
-    if len(np.unique(im_sub)) < 50:
-        return None, None
 
-    H, W = crop_height, crop_width
+    if crop_width == 0 or crop_height == 0:
+        xc = np.random.randint(low=(crop_width + 1) // 2, high=(W - (crop_width + 1) // 2 - 1))
+        yc = np.random.randint(low=(crop_height + 1) // 2, high=(H - (crop_height + 1) // 2 - 1))
+        im_sub = im[(yc - crop_height // 2):(yc - crop_height // 2 + crop_height),
+                 (xc - crop_width // 2):(xc - crop_width // 2 + crop_width),
+                 :]
+        if len(np.unique(im_sub)) < 50:
+            return None, None
+        H, W = crop_height, crop_width
+    else:
+        im_sub = im
+
     mask = np.zeros((H, W), dtype=np.uint8)
     for step in range(np.random.randint(2, 5)):
         y = np.random.randint(0, H - 1, size=2)
@@ -1370,7 +1374,7 @@ def refine_line_aug(subset='train', aug_times=1, save_root=None,
 
             if im1 is None:
                 continue
-            if mask1.sum() < 10:
+            if mask1.sum() < min(im1.shape[:2]) / 2:
                 continue
 
             save_prefix = '%s_%d_%010d' % (file_prefix, aug_time, bg_ind)
@@ -1645,8 +1649,8 @@ def get_args_parser():
     parser.add_argument('--random_count', default=1, type=int)
     parser.add_argument('--save_img', default=False, action='store_true')
     parser.add_argument('--do_rotate', default=False, action='store_true')
-    parser.add_argument('--crop_height', default=512, type=int)
-    parser.add_argument('--crop_width', default=512, type=int)
+    parser.add_argument('--crop_height', default=0, type=int)
+    parser.add_argument('--crop_width', default=0, type=int)
     parser.add_argument('--update_cache', default=False, action='store_true')
 
     return parser
