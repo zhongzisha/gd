@@ -769,18 +769,34 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
                                                          win_ysize=int(height))
                             cutout.append(band_data)
                         cutout = np.stack(cutout, -1)  # this is RGB
-                        cache_patches_list.append(cutout)
-                        cache_boxes_list.append(np.array(tmp_boxes).reshape(-1, 5))
+
+                        tmp_patches_list = [cutout]
+                        tmp_boxes_list = [np.array(tmp_boxes).reshape(-1, 5)]
 
                         if do_rotate:
                             print('fg ', ti, j)
                             patches_list, boxes_list = extract_patches_and_boxes(cutout, np.array(tmp_boxes).reshape(-1, 5),
                                                                                  xc-xoffset, yc-yoffset, width0, width0,
                                                                                  ti, j)
-
                             if len(boxes_list) > 0:
-                                cache_patches_list += patches_list
-                                cache_boxes_list += boxes_list
+                                tmp_patches_list += patches_list
+                                tmp_boxes_list += boxes_list
+
+                        if len(tmp_boxes_list) > 0:
+                            cache_patches_list += tmp_patches_list
+                            cache_boxes_list += tmp_patches_list
+
+                            if False:
+                                lines = []
+                                with open('/media/ubuntu/Data/gd_newAug1_Rot0_4classes/check_fg_images_v1/GantaHQ_%s.txt' % subset, 'r') as fp:
+                                    lines = [line.strip().replace('.jpg','') for line in fp.readlines()]
+                                print('lines', lines)
+                                if len(lines) > 0:
+                                    if not os.path.exists('/media/ubuntu/Data/GantaHQ/%s/' % subset):
+                                        os.makedirs('/media/ubuntu/Data/GantaHQ/%s/' % subset)
+                                    if '%d_%d' % (ti, j) in lines:
+                                        for ii, patch in enumerate(tmp_patches_list):
+                                            cv2.imwrite("/media/ubuntu/Data/GantaHQ/%s/%d_%d_%d.png" % (subset, ti, j, ii), patch[:, :, ::-1])
 
     if len(cache_patches_list) > 0:
         np.save(fg_images_filename, np.array(cache_patches_list, dtype=object), allow_pickle=True)
