@@ -578,7 +578,7 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
 
     ims_list = []
     gt_boxes_list = []
-    for degree in range(30, 360, 30):
+    for degree in range(5, 360, 5):
         seq = iaa.Sequential([
             iaa.Affine(rotate=degree, fit_output=False)
         ])
@@ -639,7 +639,7 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
     return ims_list, gt_boxes_list
 
 
-def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_cache=False):
+def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_cache=False, debug=False):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -676,6 +676,18 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
     cache_label_list = [1, 2, 3]
     cache_patches_list = []  # save the extracted gt_img_patches
     cache_boxes_list = []  # save the gt_boxes with the patch
+
+    if debug:
+        lines = {}
+        for label in cache_label_list:
+            if not os.path.exists('/media/ubuntu/Data/GantaHQ_Aug/%s/c%d' % (subset, label)):
+                os.makedirs('/media/ubuntu/Data/GantaHQ_Aug/%s/c%d' % (subset, label))
+            lines1 = glob.glob(
+                '/media/ubuntu/Data/gd_newAug1_Rot0_4classes/check_fg_images_v1/%s/Ganta_%d/*.jpg' % (subset, label))
+            lines1 = [line.split(os.sep)[-1].replace('.jpg', '') for line in lines1]
+            print('lines', lines1)
+            lines[label] = lines1
+        valid_lines = []
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -717,6 +729,9 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
         for j, (box, label) in enumerate(zip(gt_boxes, gt_labels)):  # per item
             if label <= 3:  # 1, 2, 3
                 xmin0, ymin0, xmax0, ymax0 = box
+                width0, height0 = xmax0 - xmin0, ymax0 - ymin0
+                if width0 > 800 or height0 > 800 or width0 < 10 or height0 < 10:
+                    continue
 
                 # crop the gt_boxes patch and the gt_boxes within it and save them for further augmentation
                 if label in cache_label_list:
@@ -724,8 +739,12 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
                     yc = (ymin0 + ymax0) // 2
                     width0, height0 = xmax0 - xmin0, ymax0 - ymin0
                     length = max(width0, height0)
-                    width = length * 2 + 32
-                    height = length * 2 + 32
+                    if debug:
+                        width = length * 1.1 + 32
+                        height = length * 1.1 + 32
+                    else:
+                        width = length * 2 + 32
+                        height = length * 2 + 32
                     width0 = width
                     xoffset = max(1, xc - width // 2)
                     yoffset = max(1, yc - height // 2)
@@ -774,10 +793,11 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
                         tmp_boxes_list = [np.array(tmp_boxes).reshape(-1, 5)]
 
                         if do_rotate:
-                            print('fg ', ti, j)
+                            print('fg ', ti, j, width0, cutout.shape)
                             patches_list, boxes_list = extract_patches_and_boxes(cutout, np.array(tmp_boxes).reshape(-1, 5),
                                                                                  xc-xoffset, yc-yoffset, width0, width0,
                                                                                  ti, j)
+                            print('rotate done')
                             if len(boxes_list) > 0:
                                 tmp_patches_list += patches_list
                                 tmp_boxes_list += boxes_list
@@ -786,17 +806,19 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
                             cache_patches_list += tmp_patches_list
                             cache_boxes_list += tmp_patches_list
 
-                            if False:
-                                lines = []
-                                with open('/media/ubuntu/Data/gd_newAug1_Rot0_4classes/check_fg_images_v1/GantaHQ_%s.txt' % subset, 'r') as fp:
-                                    lines = [line.strip().replace('.jpg','') for line in fp.readlines()]
-                                print('lines', lines)
-                                if len(lines) > 0:
-                                    if not os.path.exists('/media/ubuntu/Data/GantaHQ/%s/' % subset):
-                                        os.makedirs('/media/ubuntu/Data/GantaHQ/%s/' % subset)
-                                    if '%d_%d' % (ti, j) in lines:
+                            if debug:
+                                if len(lines[label]) > 0:
+                                    if '%d_%d' % (ti, j) in lines[label]:
                                         for ii, patch in enumerate(tmp_patches_list):
-                                            cv2.imwrite("/media/ubuntu/Data/GantaHQ/%s/%d_%d_%d.png" % (subset, ti, j, ii), patch[:, :, ::-1])
+                                            save_filename = "%s/c%d/%d_%d_%d.png" % (subset, label, ti, j, ii)
+                                            cv2.imwrite("/media/ubuntu/Data/GantaHQ_Aug/%s" % (save_filename),
+                                                        patch[:, :, ::-1])
+                                            valid_lines.append(save_filename+'\n')
+    if debug:
+        if len(valid_lines) > 0:
+            with open("/media/ubuntu/Data/GantaHQ_Aug/%s.txt" % subset, "w") as fp:
+                fp.writelines(valid_lines)
+        return None, None
 
     if len(cache_patches_list) > 0:
         np.save(fg_images_filename, np.array(cache_patches_list, dtype=object), allow_pickle=True)
@@ -1713,7 +1735,10 @@ if __name__ == '__main__':
         os.makedirs(save_dir)
     fg_images_filename, fg_boxes_filename = extract_fg_images(subset, cached_data_path,
                                                               do_rotate=do_rotate,
-                                                              update_cache=update_cache)
+                                                              update_cache=update_cache,
+                                                              debug=True)
+
+    sys.exit(-1)
 
     if False:
         fg_images_list = np.load(fg_images_filename, allow_pickle=True)  # list of RGB images [HxWx3]

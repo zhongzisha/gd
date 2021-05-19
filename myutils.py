@@ -472,7 +472,80 @@ def get_gt_boxes(gt_xml_filename):
 
 
 def save_predictions_to_envi_xml(preds, save_xml_filename, gdal_proj_info, gdal_trans_info,
-                                 names=None, colors=None):
+                                 names=None, colors=None, is_line=False):
+    if names is None:
+        names = {0: '1', 1: '2'}
+    if colors is None:
+        colors = {0: "255,0,0", 1: "0,0,255"}
+
+    def get_coords_str(xmin, ymin, xmax, ymax):
+        # [xmin, ymin]
+        x1 = gdal_trans_info[0] + (xmin + 0.5) * gdal_trans_info[1] + (ymin + 0.5) * gdal_trans_info[2]
+        y1 = gdal_trans_info[3] + (xmin + 0.5) * gdal_trans_info[4] + (ymin + 0.5) * gdal_trans_info[5]
+
+        # [xmax, ymax]
+        x3 = gdal_trans_info[0] + (xmax + 0.5) * gdal_trans_info[1] + (ymax + 0.5) * gdal_trans_info[2]
+        y3 = gdal_trans_info[3] + (xmax + 0.5) * gdal_trans_info[4] + (ymax + 0.5) * gdal_trans_info[5]
+
+        if is_line:
+            return " ".join(['%.6f' % val for val in [x1, y1, x3, y3]])
+        else:
+            # [xmax, ymin]
+            x2 = gdal_trans_info[0] + (xmax + 0.5) * gdal_trans_info[1] + (ymin + 0.5) * gdal_trans_info[2]
+            y2 = gdal_trans_info[3] + (xmax + 0.5) * gdal_trans_info[4] + (ymin + 0.5) * gdal_trans_info[5]
+            # [xmin, ymax]
+            x4 = gdal_trans_info[0] + (xmin + 0.5) * gdal_trans_info[1] + (ymax + 0.5) * gdal_trans_info[2]
+            y4 = gdal_trans_info[3] + (xmin + 0.5) * gdal_trans_info[4] + (ymax + 0.5) * gdal_trans_info[5]
+
+            return " ".join(['%.6f' % val for val in [x1, y1, x2, y2, x3, y3, x4, y4, x1, y1]])
+
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>\n<RegionsOfInterest version="1.0">\n']
+    # names = {0: '1', 1: '2'}
+
+    is_gt = False
+    if len(preds) > 0:
+        is_gt = len(preds[0]) == 5
+
+    for current_label, label_name in names.items():
+        lines1 = ['<Region name="%s" color="%s">\n' % (label_name, colors[current_label]),
+                  '<GeometryDef>\n<CoordSysStr>%s</CoordSysStr>\n' % (
+                      gdal_proj_info if gdal_proj_info != '' else 'none')]  # 这里不能有换行符
+
+        count = 0
+        for i, pred in enumerate(preds):
+            if is_gt:
+                xmin, ymin, xmax, ymax, label = pred
+                label = int(label) - 1  # label==0: 杆塔, label==1: 绝缘子
+            else:
+                xmin, ymin, xmax, ymax, score, label = pred
+                label = int(label)  # label==0: 杆塔, label==1: 绝缘子
+
+            if label == current_label:
+                coords_str = get_coords_str(xmin, ymin, xmax, ymax)
+
+                if is_line:
+                    lines1.append('<LineString>\n<Coordinates>\n')
+                    lines1.append('%s\n' % (coords_str))
+                    lines1.append('</Coordinates>\n</LineString>\n')
+                else:
+                    lines1.append('<Polygon>\n<Exterior>\n<LinearRing>\n<Coordinates>\n')
+                    lines1.append('%s\n' % (coords_str))
+                    lines1.append('</Coordinates>\n</LinearRing>\n</Exterior>\n</Polygon>\n')
+
+                count += 1
+        lines1.append('</GeometryDef>\n</Region>\n')
+
+        if count > 0:
+            lines.append(''.join(lines1))
+
+    lines.append('</RegionsOfInterest>\n')
+
+    with open(save_xml_filename, 'w') as fp:
+        fp.writelines(lines)
+
+
+def save_predictions_to_envi_xml_bak(preds, save_xml_filename, gdal_proj_info, gdal_trans_info,
+                                     names=None, colors=None):
     if names is None:
         names = {0: '1', 1: '2'}
     if colors is None:
