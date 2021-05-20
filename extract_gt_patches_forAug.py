@@ -1159,8 +1159,8 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_root=None,
     for aug_time in range(aug_times):
         print('aug_time', aug_time)
 
-        if len(bg_filenames) > 10000:
-            bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=10000, replace=False)
+        if len(bg_filenames) > 5000:
+            bg_indices = np.random.choice(np.arange(len(bg_filenames)), size=5000, replace=False)
         else:
             bg_indices = np.arange(len(bg_filenames))
 
@@ -1730,15 +1730,15 @@ if __name__ == '__main__':
     cached_data_path/val_bg_images/
     """
     print('extract fg images ...')
-    save_dir = 'E:/fg_images_shown/'
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+    # save_dir = 'E:/fg_images_shown/'
+    # if not os.path.exists(save_dir):
+    #     os.makedirs(save_dir)
     fg_images_filename, fg_boxes_filename = extract_fg_images(subset, cached_data_path,
                                                               do_rotate=do_rotate,
                                                               update_cache=update_cache,
-                                                              debug=True)
+                                                              debug=False)
 
-    sys.exit(-1)
+    # sys.exit(-1)
 
     if False:
         fg_images_list = np.load(fg_images_filename, allow_pickle=True)  # list of RGB images [HxWx3]
