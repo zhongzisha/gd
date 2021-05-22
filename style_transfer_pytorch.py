@@ -49,6 +49,7 @@ to resemble the content of the content-image and the artistic style of the style
 
 from __future__ import print_function
 import sys, os
+import glob
 
 import torch
 import torch.nn as nn
@@ -60,6 +61,9 @@ import matplotlib.pyplot as plt
 
 import torchvision.transforms as transforms
 import torchvision.models as models
+
+import numpy as np
+import cv2
 
 import copy
 
@@ -307,7 +311,7 @@ class Normalization(nn.Module):
 # style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5']
 
 
-def get_style_model_and_losses(cnn, normalization_mean, normalization_std,
+def get_style_model_and_losses(device, cnn, normalization_mean, normalization_std,
                                style_img, content_img,
                                content_layers=['conv_4'],
                                style_layers= ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5']):
@@ -413,12 +417,12 @@ def get_input_optimizer(input_img):
 # between 0 to 1 each time the network is run.
 #
 
-def run_style_transfer(cnn, normalization_mean, normalization_std,
+def run_style_transfer(device, cnn, normalization_mean, normalization_std,
                        content_img, style_img, input_img, num_steps=300,
                        style_weight=1000000, content_weight=1):
     """Run the style transfer."""
     print('Building the style transfer model..')
-    model, style_losses, content_losses = get_style_model_and_losses(cnn,
+    model, style_losses, content_losses = get_style_model_and_losses(device, cnn,
                                                                      normalization_mean, normalization_std, style_img,
                                                                      content_img)
     optimizer = get_input_optimizer(input_img)
@@ -464,12 +468,12 @@ def run_style_transfer(cnn, normalization_mean, normalization_std,
     return input_img
 
 
-if __name__ == '__main__':
-    num_steps = int(sys.argv[1])
-    style_weight = int(sys.argv[2])
-    content_weight = int(sys.argv[3])
+def main1(num_steps, style_weight, content_weight):
+    # num_steps = int(sys.argv[1])
+    # style_weight = int(sys.argv[2])
+    # content_weight = int(sys.argv[3])
     save_dir = os.path.join('/media/ubuntu/Data/gd_style/steps%d_style%d_content%d/'%(num_steps, style_weight, content_weight))
-    if not os.path.join(save_dir):
+    if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -478,11 +482,9 @@ if __name__ == '__main__':
     imsize = 512 if torch.cuda.is_available() else 128  # use small size if no gpu
 
     loader = transforms.Compose([
-        transforms.Resize(imsize),  # scale imported image
         transforms.ToTensor()])  # transform it into a torch tensor
 
-    def image_loader(image_name):
-        image = Image.open(image_name)
+    def image_loader(image):
         # fake batch dimension required to fit network's input dimensions
         image = loader(image).unsqueeze(0)
         return image.to(device, torch.float)
@@ -490,15 +492,43 @@ if __name__ == '__main__':
     fg_files = glob.glob('/media/ubuntu/Data/gd_newAug1_Rot0_4classes_bak/check_fg_images_v1/train/Ganta_3/*.jpg')
     bg_files = glob.glob('/media/ubuntu/Data/gd_cached_data/train_bg_images/*.png')
 
-    count = 100
-    fg_inds = np.random.choice(np.arange(len(fg_files)), count=100, replace=True)
-    bg_inds = np.random.choice(np.arange(len(bg_files)), count=100, replace=False)
+    count = 1000
+    fg_inds = np.random.choice(np.arange(len(fg_files)), size=count, replace=True)
+    bg_inds = np.random.choice(np.arange(len(bg_files)), size=count, replace=False)
 
-    for i in range(100):
+    unloader = transforms.ToPILImage()
+
+    for i in range(count):
         fg_filename = fg_files[fg_inds[i]]
         bg_filename = bg_files[bg_inds[i]]
-        style_img = image_loader("/media/ubuntu/Data/gd_newAug1_Rot0_4classes/check_fg_images_v1/train/images/1_95.jpg")
-        content_img = image_loader("/media/ubuntu/Data/gd_newAug1_Rot0_4classes/check_fg_images_v1/train/images/1_135.jpg")
+        fg_prefix = fg_filename.split(os.sep)[-1].replace('.jpg', '')
+        bg_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
+
+        fg_img = cv2.imread(fg_filename)
+        bg_img = cv2.imread(bg_filename)
+        h, w = fg_img.shape[:2]
+        H, W = bg_img.shape[:2]
+        if H < h or W < w:
+            continue
+        is_ok = False
+        for iter in range(10):
+            if H > h:
+                h1 = np.random.randint(low=0, high=H-h)
+            if W > w:
+                w1 = np.random.randint(low=0, high=W-w)
+            bg_img1 = bg_img[h1:(h1+h), w1:(w1+w), :]
+            bg_img_sum = np.sum(bg_img1.astype(np.int32), axis=2)
+            if len(np.where(bg_img_sum == 0)[0]) < 50 and len(np.unique(bg_img_sum)) > 10:
+                is_ok = True
+                break
+        if not is_ok:
+            continue
+
+        fg_img_pil = Image.fromarray(fg_img)
+        bg_img_pil = Image.fromarray(bg_img1)
+
+        style_img = image_loader(bg_img_pil)
+        content_img = image_loader(fg_img_pil)
 
         assert style_img.size() == content_img.size(), \
             "we need to import style and content images of the same size"
@@ -509,18 +539,120 @@ if __name__ == '__main__':
 
         cnn_normalization_mean = torch.tensor([0.485, 0.456, 0.406]).to(device)
         cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225]).to(device)
-        output = run_style_transfer(cnn,
+        output = run_style_transfer(device, cnn,
                                     cnn_normalization_mean,
                                     cnn_normalization_std,
                                     content_img, style_img, input_img,
                                     num_steps=num_steps,
                                     style_weight=style_weight,
                                     content_weight=content_weight)
+        image = output.cpu().clone()  # we clone the tensor to not do changes on it
+        image = image.squeeze(0)  # remove the fake batch dimension
+        image = unloader(image)
+        image = np.array(image)
+        cv2.imwrite(os.path.join(save_dir, "%d_%s.jpg" %(i, fg_prefix)), fg_img)
+        cv2.imwrite(os.path.join(save_dir, "%d_%s.jpg" %(i, bg_prefix)), bg_img)
+        cv2.imwrite(os.path.join(save_dir, "%d_after_style.jpg" % i), image)
 
-# plt.figure()
-# imshow(output, title='Output Image')
-# plt.savefig("/media/ubuntu/Temp/style_transfer_%d_%d_%d.png"%(num_steps, style_weight, content_weight))
-#
-# # sphinx_gallery_thumbnail_number = 4
-# plt.ioff()
-# plt.show()
+
+def main2(num_steps, style_weight, content_weight):
+    # num_steps = int(sys.argv[1])
+    # style_weight = int(sys.argv[2])
+    # content_weight = int(sys.argv[3])
+    save_dir = os.path.join('/media/ubuntu/Data/gd_style2/steps%d_style%d_content%d/'%(num_steps, style_weight, content_weight))
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    device = torch.device("cuda:0")
+
+    # desired size of the output image
+    imsize = 512
+
+    loader = transforms.Compose([
+        transforms.ToTensor()])  # transform it into a torch tensor
+
+    def image_loader(image):
+        # fake batch dimension required to fit network's input dimensions
+        image = loader(image).unsqueeze(0)
+        return image.to(device, torch.float)
+
+    fg_files = glob.glob('/media/ubuntu/Data/gd_newAug1_Rot0_4classes_bak/check_fg_images_v1/train/Ganta_3/*.jpg')
+    bg_files = glob.glob('/media/ubuntu/Data/gd_cached_data/train_bg_images/*.png')
+
+    count = 1000
+    fg_inds = np.random.choice(np.arange(len(fg_files)), size=count, replace=True)
+    bg_inds = np.random.choice(np.arange(len(bg_files)), size=count, replace=False)
+
+    unloader = transforms.ToPILImage()
+
+    for i in range(count):
+        fg_filename = fg_files[fg_inds[i]]
+        bg_filename = bg_files[bg_inds[i]]
+        fg_prefix = fg_filename.split(os.sep)[-1].replace('.jpg', '')
+        bg_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
+
+        fg_img = cv2.imread(fg_filename)
+        h0, w0 = fg_img.shape[:2]
+        fg_img1 = cv2.resize(fg_img, (imsize, imsize))
+        bg_img = cv2.imread(bg_filename)
+        h, w = fg_img1.shape[:2]
+        H, W = bg_img.shape[:2]
+        if H < h or W < w:
+            continue
+        is_ok = False
+        for iter in range(10):
+            if H > h:
+                h1 = np.random.randint(low=0, high=H-h)
+            if W > w:
+                w1 = np.random.randint(low=0, high=W-w)
+            bg_img1 = bg_img[h1:(h1+h), w1:(w1+w), :]
+            bg_img_sum = np.sum(bg_img1.astype(np.int32), axis=2)
+            if len(np.where(bg_img_sum == 0)[0]) < 50 and len(np.unique(bg_img_sum)) > 10:
+                is_ok = True
+                break
+        if not is_ok:
+            continue
+
+        fg_img_pil = Image.fromarray(fg_img1)
+        bg_img_pil = Image.fromarray(bg_img1)
+
+        style_img = image_loader(bg_img_pil)
+        content_img = image_loader(fg_img_pil)
+
+        assert style_img.size() == content_img.size(), \
+            "we need to import style and content images of the same size"
+
+        input_img = content_img.clone()
+
+        cnn = models.vgg19(pretrained=True).features.to(device).eval()
+
+        cnn_normalization_mean = torch.tensor([0.485, 0.456, 0.406]).to(device)
+        cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225]).to(device)
+        output = run_style_transfer(device, cnn,
+                                    cnn_normalization_mean,
+                                    cnn_normalization_std,
+                                    content_img, style_img, input_img,
+                                    num_steps=num_steps,
+                                    style_weight=style_weight,
+                                    content_weight=content_weight)
+        image = output.cpu().clone()  # we clone the tensor to not do changes on it
+        image = image.squeeze(0)  # remove the fake batch dimension
+        image = unloader(image)
+        image = np.array(image)
+
+        image = cv2.resize(image, (w0, h0))
+
+        cv2.imwrite(os.path.join(save_dir, "%d_%s.jpg" %(i, fg_prefix)), fg_img)
+        cv2.imwrite(os.path.join(save_dir, "%d_%s.jpg" %(i, bg_prefix)), bg_img)
+        cv2.imwrite(os.path.join(save_dir, "%d_after_style.jpg" % i), image)
+
+
+if __name__ == '__main__':
+    type = sys.argv[1]
+    num_steps = int(sys.argv[2])
+    style_weight = int(sys.argv[3])
+    content_weight = int(sys.argv[4])
+    if type == 'v1':
+        main1(num_steps, style_weight, content_weight)
+    elif type == 'v2':
+        main2(num_steps, style_weight, content_weight)
