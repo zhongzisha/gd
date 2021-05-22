@@ -32,8 +32,8 @@ def calchalf_iou(poly1, poly2):
 
 
 def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info, valid_labels):
-    print(gt_txt_filename)
-    print(gt_xml_filename)
+    # print(gt_txt_filename)
+    # print(gt_xml_filename)
     # 加载gt，分两部分，一部分是txt格式的。一部分是esri xml格式的
     gt_boxes1, gt_labels1 = load_gt_from_txt(gt_txt_filename)
     gt_boxes2, gt_labels2 = load_gt_from_esri_xml(gt_xml_filename,
@@ -46,8 +46,8 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info, valid_labels):
 
     all_boxes = np.concatenate([np.array(gt_boxes, dtype=np.float32).reshape(-1, 4),
                                 np.array(gt_labels, dtype=np.float32).reshape(-1, 1)], axis=1)
-    print('all_boxes')
-    print(all_boxes)
+    # print('all_boxes')
+    # print(all_boxes)
 
     # 每个类进行nms
     tmp_boxes = []
@@ -331,6 +331,93 @@ def extract_fg_images_bak2(subset='train', save_root=None, do_rotate=False,
         np.save(fg_images_filename, cache_patches_list, allow_pickle=True)
         np.save(fg_boxes_filename, cache_boxes_list, allow_pickle=True)
     return fg_images_filename, fg_boxes_filename
+
+
+def check_dataset(subset='train'):
+    hostname = socket.gethostname()
+    if hostname == 'master':
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
+    else:
+        source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
+        gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
+
+    info_filename = os.path.join(gt_dir, '{}_infos.csv'.format(subset))
+    # if os.path.exists(info_filename):
+    #     return -1
+
+    gt_postfix = '_gt_5.xml'
+    valid_labels_set = [1, 2, 3, 4]
+    save_img = True
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    cache_label_list = [1, 2, 3]
+    colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
+
+    lines = []
+
+    for ti in range(len(tiffiles)):
+        tiffile = tiffiles[ti]
+        file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+
+        print(ti, '=' * 80)
+        print(file_prefix)
+
+        ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+        print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                     ds.GetDriver().LongName))
+        print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                            ds.RasterYSize,
+                                            ds.RasterCount))
+        print("Projection is {}".format(ds.GetProjection()))
+        projection = ds.GetProjection()
+        projection_sr = osr.SpatialReference(wkt=projection)
+        projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+        geotransform = ds.GetGeoTransform()
+        xOrigin = geotransform[0]
+        yOrigin = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+        print("Height = {}, Width = {}".format(orig_height, orig_width))
+        if geotransform:
+            print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+            print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+            print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+
+        gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
+
+        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+                                      valid_labels=valid_labels_set)
+
+        if len(gt_boxes) == 0:
+            continue
+
+        gt_boxes = np.array(gt_boxes)
+        gt_labels = np.array(gt_labels)
+
+        gt_counts = {}
+        for label in valid_labels_set:
+            inds = np.where(gt_labels == label)[0]
+            print("Class {}: {}".format(label, len(inds)))
+            gt_counts[label] = len(inds)
+        print('gt_counts', gt_counts)
+        lines.append("{},{},{},{},{},{},{},{},{}\n".format(
+            ti, orig_width, orig_height, pixelWidth, pixelHeight,
+            gt_counts[1], gt_counts[2], gt_counts[3], gt_counts[4]
+        ))
+
+    if len(lines) > 0:
+        with open(info_filename, 'w', encoding='utf-8-sig') as fp:
+            fp.writelines(lines)
 
 
 def check_fg_images(subset='train', save_root=None):
@@ -1719,6 +1806,10 @@ if __name__ == '__main__':
     if aug_type == 'check_fg_images_v1':
         save_root = '%s/%s' % (save_root, aug_type)
         check_fg_images(subset=subset, save_root=save_root)
+        sys.exit(-1)
+
+    if aug_type == 'check_dataset':
+        check_dataset(subset=subset)
         sys.exit(-1)
 
     """
