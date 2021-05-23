@@ -647,6 +647,96 @@ def main2(num_steps, style_weight, content_weight):
         cv2.imwrite(os.path.join(save_dir, "%d_after_style.jpg" % i), image)
 
 
+def main3(num_steps, style_weight, content_weight):
+    # num_steps = int(sys.argv[1])
+    # style_weight = int(sys.argv[2])
+    # content_weight = int(sys.argv[3])
+    save_dir = os.path.join('/media/ubuntu/Data/gd_style3/steps%d_style%d_content%d/'%(num_steps, style_weight, content_weight))
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    device = torch.device("cuda:0")
+
+    # desired size of the output image
+    imsize = 512
+
+    loader = transforms.Compose([
+        transforms.ToTensor()])  # transform it into a torch tensor
+
+    def image_loader(image):
+        # fake batch dimension required to fit network's input dimensions
+        image = loader(image).unsqueeze(0)
+        return image.to(device, torch.float)
+
+    fg_files = glob.glob('/media/ubuntu/Data/gd_newAug1_Rot0_4classes_bak/check_fg_images_v1/train/Ganta_3_new/*.jpg')
+
+    count = 10000
+    fg_inds = np.random.choice(np.arange(len(fg_files)), size=2*count, replace=True)
+
+    unloader = transforms.ToPILImage()
+
+    for i in range(count):
+        fg_filename = fg_files[fg_inds[i]]
+        bg_filename = fg_files[fg_inds[i+count]]
+        fg_prefix = fg_filename.split(os.sep)[-1].replace('.jpg', '')
+        bg_prefix = bg_filename.split(os.sep)[-1].replace('.jpg', '')
+
+        fg_img = cv2.imread(fg_filename)
+        h0, w0 = fg_img.shape[:2]
+        fg_img1 = cv2.resize(fg_img, (imsize, imsize))
+        bg_img = cv2.imread(bg_filename)
+        h, w = fg_img1.shape[:2]
+        H, W = bg_img.shape[:2]
+        if H < h or W < w:
+            continue
+        is_ok = False
+        for iter in range(10):
+            if H > h:
+                h1 = np.random.randint(low=0, high=H-h)
+            if W > w:
+                w1 = np.random.randint(low=0, high=W-w)
+            bg_img1 = bg_img[h1:(h1+h), w1:(w1+w), :]
+            bg_img_sum = np.sum(bg_img1.astype(np.int32), axis=2)
+            if len(np.where(bg_img_sum == 0)[0]) < 50 and len(np.unique(bg_img_sum)) > 10:
+                is_ok = True
+                break
+        if not is_ok:
+            continue
+
+        fg_img_pil = Image.fromarray(fg_img1)
+        bg_img_pil = Image.fromarray(bg_img1)
+
+        style_img = image_loader(bg_img_pil)
+        content_img = image_loader(fg_img_pil)
+
+        assert style_img.size() == content_img.size(), \
+            "we need to import style and content images of the same size"
+
+        input_img = content_img.clone()
+
+        cnn = models.vgg19(pretrained=True).features.to(device).eval()
+
+        cnn_normalization_mean = torch.tensor([0.485, 0.456, 0.406]).to(device)
+        cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225]).to(device)
+        output = run_style_transfer(device, cnn,
+                                    cnn_normalization_mean,
+                                    cnn_normalization_std,
+                                    content_img, style_img, input_img,
+                                    num_steps=num_steps,
+                                    style_weight=style_weight,
+                                    content_weight=content_weight)
+        image = output.cpu().clone()  # we clone the tensor to not do changes on it
+        image = image.squeeze(0)  # remove the fake batch dimension
+        image = unloader(image)
+        image = np.array(image)
+
+        image = cv2.resize(image, (w0, h0))
+
+        cv2.imwrite(os.path.join(save_dir, "%d_%s.jpg" %(i, fg_prefix)), fg_img)
+        cv2.imwrite(os.path.join(save_dir, "%d_%s.jpg" %(i, bg_prefix)), bg_img)
+        cv2.imwrite(os.path.join(save_dir, "%d_after_style.jpg" % i), image)
+
+
 if __name__ == '__main__':
     type = sys.argv[1]
     num_steps = int(sys.argv[2])
@@ -656,3 +746,5 @@ if __name__ == '__main__':
         main1(num_steps, style_weight, content_weight)
     elif type == 'v2':
         main2(num_steps, style_weight, content_weight)
+    elif type == 'v3':
+        main3(num_steps, style_weight, content_weight)
