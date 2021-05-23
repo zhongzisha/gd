@@ -242,11 +242,11 @@ def main_all(subset='train'):
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
-        save_root = '/media/ubuntu/Data/multiclass_segmentation'
+        save_root = '/media/ubuntu/Data/multiclass_segmentation_2048'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
         gt_dir = 'F:/gddata/aerial'    # *_gt_5.xml保存在这个目录下了
-        save_root = 'E:/multiclass_segmentation'
+        save_root = 'E:/multiclass_segmentation_2048'
 
     random_count = 1
     if subset == 'train':
@@ -280,7 +280,7 @@ def main_all(subset='train'):
         0, 255, size=(len(gt_postfixes), 3))
     opacity = 0.5
 
-    big_subsize = 1024
+    big_subsize = 2048
     gt_gap = 2
 
     lines = []
