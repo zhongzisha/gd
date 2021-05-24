@@ -1765,6 +1765,203 @@ def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
             json.dump(data_dict, f_out, indent=4)
 
 
+# random points according to the ground truth polygons
+def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None):
+    hostname = socket.gethostname()
+    if hostname == 'master':
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
+    else:
+        source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
+        gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
+
+    save_dir = '%s/%s/' % (save_root, subset)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    aug_times = aug_times if subset == 'train' else 1
+
+    images_root = save_dir + "/images/%s/" % subset
+    labels_root = save_dir + "/annotations/%s/" % subset
+    images_shown_root = save_dir + "/images_shown/%s/" % subset
+    if not os.path.exists(images_root):
+        os.makedirs(images_root)
+    if not os.path.exists(labels_root):
+        os.makedirs(labels_root)
+    if not os.path.exists(images_shown_root):
+        os.makedirs(images_shown_root)
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    gt_postfixes = ['_gt_building7.xml',
+                    '_gt_landslide10.xml',
+                    '_gt_water6.xml']
+                    # '_gt_tree8.xml',
+                    # '_gt_flood12.xml']
+    random_gt_ratios = [0.2, 0.8, 0.1, 0.1]
+    palette = np.random.randint(
+        0, 255, size=(len(gt_postfixes), 3))
+    opacity = 0.5
+
+    lines = []
+
+    for ti in range(len(tiffiles)):
+        tiffile = tiffiles[ti]
+        file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+
+        print(ti, '=' * 80)
+        print(file_prefix)
+
+        ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+        print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                     ds.GetDriver().LongName))
+        print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                            ds.RasterYSize,
+                                            ds.RasterCount))
+        print("Projection is {}".format(ds.GetProjection()))
+        projection = ds.GetProjection()
+        projection_sr = osr.SpatialReference(wkt=projection)
+        projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+        geotransform = ds.GetGeoTransform()
+        xOrigin = geotransform[0]
+        yOrigin = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+        if geotransform:
+            print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+            print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+            print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+
+        print('loading gt ...')
+        all_gt_polys, all_gt_labels = [], []
+        for gi, gt_postfix in enumerate(gt_postfixes):
+            gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
+
+            gt_polys, gt_labels = load_gt_polys_from_esri_xml(gt_xml_filename, gdal_trans_info=geotransform,
+                                                              mapcoords2pixelcoords=True)
+            gt_labels = [gi+1 for _ in range(len(gt_labels))]
+            all_gt_polys.append(gt_polys)
+            all_gt_labels.append(gt_labels)
+
+            print('class-%d'%(gi+1), len(gt_polys), len(gt_labels))
+
+        # 首先根据标注生成mask图像，存在内存问题！！！
+        print('generate mask ...')
+        mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
+        if True:
+            # 下面的可以直接画所有的轮廓，但是会出现相排斥的现象，用下面的循环可以得到合适的mask
+            # cv2.drawContours(mask, gt_polys, -1, color=(255, 0, 0), thickness=-1)
+
+            for gt_polys, gt_labels in zip(all_gt_polys, all_gt_labels):
+                for poly, label in zip(gt_polys, gt_labels):  # poly为nx2的点, numpy.array
+                    cv2.drawContours(mask, [poly], -1, color=(label, label, label), thickness=-1)
+
+            mask_savefilename = save_dir + "/" + file_prefix + ".png"
+            # cv2.imwrite(mask_savefilename, mask)
+            if not os.path.exists(mask_savefilename):
+                cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
+
+        for aug_time in range(aug_times):
+            for pi1, (gt_polys, gt_labels) in enumerate(zip(all_gt_polys, all_gt_labels)):
+                for pi2, (poly, label) in enumerate(zip(gt_polys, gt_labels)):  # poly为nx2的点, numpy.array
+                    cx, cy = np.mean(poly, axis=0).astype(np.int32)
+                    pw = np.max(poly[:, 0]) - np.min(poly[:, 0])
+                    ph = np.max(poly[:, 1]) - np.min(poly[:, 1])
+                    ex = np.random.randint(low=int(0.5*pw), high=int(2.0*pw))
+                    ey = np.random.randint(low=int(0.5*ph), high=int(2.0*ph))
+                    xoffset = cx - pw//2 - ex
+                    sub_width = pw + 2*ex
+                    yoffset = cy - ph//2 - ey
+                    sub_height = ph + 2*ey
+
+                    if sub_width < 512:
+                        xoffset = cx - np.random.randint(low=256, high=512)
+                        sub_width = np.random.randint(low=512, high=1024)
+                    if sub_height < 512:
+                        yoffset = cy - np.random.randint(low=256, high=512)
+                        sub_height = np.random.randint(low=512, high=1024)
+
+                    xoffset = max(1, xoffset)
+                    yoffset = max(1, yoffset)
+                    if xoffset + sub_width > orig_width - 1:
+                        sub_width = orig_width - 1 - xoffset
+                    if yoffset + sub_height > orig_height - 1:
+                        sub_height = orig_height - 1 - yoffset
+                    xoffset, yoffset, sub_width, sub_height = [int(val) for val in
+                                                               [xoffset, yoffset, sub_width, sub_height]]
+                    # print('processing sub image %d' % oi, xoffset, yoffset, sub_width, sub_height)
+                    img = np.zeros((sub_height, sub_width, 3), dtype=np.uint8)  # RGB format
+                    for b in range(3):
+                        band = ds.GetRasterBand(b + 1)
+                        img[:, :, b] = band.ReadAsArray(xoffset, yoffset, win_xsize=sub_width, win_ysize=sub_height)
+                    img_sum = np.sum(img, axis=2)
+                    indices_y, indices_x = np.where(img_sum > 0)
+                    if len(indices_x) == 0:
+                        continue
+
+                    # sample points from mask
+                    seg = mask[(yoffset):(yoffset + sub_height), (xoffset):(xoffset + sub_width)]
+                    seg_count = len(np.where(seg > 0)[0])
+                    if seg_count < 10:
+                        continue
+
+                    assert img.shape[:2] == seg.shape[:2]
+
+                    H, W = img.shape[:2]
+                    num_x_splits = max(1, int(np.round(W/1024)))
+                    num_y_splits = max(1, int(np.round(H/1024)))
+                    x_splits = np.array_split(np.arange(W, dtype=np.int32), num_x_splits)
+                    y_splits = np.array_split(np.arange(H, dtype=np.int32), num_y_splits)
+
+                    for sx in range(num_x_splits):
+                        x1, x2 = x_splits[sx][0], x_splits[sx][-1]+1
+                        for sy in range(num_y_splits):
+                            y1, y2 = y_splits[sy][0], y_splits[sy][-1]+1
+
+                            img1 = img[y1:y2, x1:x2, ::-1]
+                            seg1 = seg[y1:y2, x1:x2]
+
+                            seg1_count = len(np.where(seg1 > 0)[0])
+                            if seg1_count < 10:
+                                continue
+
+                            if len(np.where(img1[:,:,0]==0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
+                                    or len(np.where(img1[:,:,0]==255)[0]) > 0.4 * np.prod(img1.shape[:2]):
+                                continue
+
+                            save_prefix = '%03d_%d_%d_%d_%d_%d' % (ti, aug_time, pi1, pi2, sx, sy)
+                            cv2.imwrite('%s/%s.jpg' % (images_root, save_prefix), img1)  # 不能有中文
+                            cv2.imwrite('%s/%s.png' % (labels_root, save_prefix), seg1)
+
+                            lines.append('%s\n' % save_prefix)
+
+                            if np.random.rand() < 0.01:
+                                # cv2.imwrite('%s/%s.jpg' % (images_shown_root, save_prefix),
+                                #             np.concatenate([im1, 255 * np.stack([mask1, mask1, mask1], axis=2)],
+                                #                            axis=1))  # 不能有中文
+                                color_seg = np.zeros((seg1.shape[0], seg1.shape[1], 3), dtype=np.uint8)
+                                for label, color in enumerate(palette):
+                                    color_seg[seg1 == (label + 1), :] = color
+                                # convert to BGR
+                                color_seg = color_seg[..., ::-1]
+
+                                img1 = img1 * (1 - opacity) + color_seg * opacity
+                                img1 = img1.astype(np.uint8)
+                                cv2.imwrite('%s/%s.jpg' % (images_shown_root, save_prefix), img1)
+                    del img, seg
+        del mask
+
+    if len(lines) > 0:
+        with open(save_root + '/%s.txt' % subset, 'w') as fp:
+            fp.writelines(lines)
+
+
 def get_args_parser():
     parser = argparse.ArgumentParser('gd augmentation', add_help=False)
     parser.add_argument('--cached_data_path', default='', type=str)
@@ -1798,6 +1995,16 @@ if __name__ == '__main__':
     crop_width = args.crop_width
     update_cache = args.update_cache
 
+    if aug_type == 'mc_seg_v1':
+        if hostname == 'master':
+            save_root = '/media/ubuntu/Data/gd_mc_seg_Aug%d/%s/' % (aug_times, aug_type)
+        else:
+            save_root = 'E:/gd_mc_seg_Aug%d/%s/' % (aug_times, aug_type)
+
+        aug_mc_seg_v1(subset=subset, aug_times=aug_times, save_img=save_img, save_root=save_root)
+        sys.exit(-1)
+
+    # for detection aug
     if hostname == 'master':
         save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
     else:
