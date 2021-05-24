@@ -1775,7 +1775,7 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None):
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
         gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
 
-    save_dir = '%s/%s/' % (save_root, subset)
+    save_dir = save_root
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     aug_times = aug_times if subset == 'train' else 1
@@ -1867,6 +1867,9 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None):
             if not os.path.exists(mask_savefilename):
                 cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
 
+        size0 = 10000
+        size1 = -1
+
         for aug_time in range(aug_times):
             for pi1, (gt_polys, gt_labels) in enumerate(zip(all_gt_polys, all_gt_labels)):
                 for pi2, (poly, label) in enumerate(zip(gt_polys, gt_labels)):  # poly为nx2的点, numpy.array
@@ -1935,6 +1938,9 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None):
                                     or len(np.where(img1[:,:,0]==255)[0]) > 0.4 * np.prod(img1.shape[:2]):
                                 continue
 
+                            size0 = min(size0, min(img1.shape[:2]))
+                            size1 = max(size1, max(img1.shape[:2]))
+
                             save_prefix = '%03d_%d_%d_%d_%d_%d' % (ti, aug_time, pi1, pi2, sx, sy)
                             cv2.imwrite('%s/%s.jpg' % (images_root, save_prefix), img1)  # 不能有中文
                             cv2.imwrite('%s/%s.png' % (labels_root, save_prefix), seg1)
@@ -1957,8 +1963,9 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None):
                     del img, seg
         del mask
 
+
     if len(lines) > 0:
-        with open(save_root + '/%s.txt' % subset, 'w') as fp:
+        with open(save_root + '/%s_%d_%d.txt' % (subset, size0, size1), 'w') as fp:
             fp.writelines(lines)
 
 
