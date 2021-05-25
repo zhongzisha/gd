@@ -1798,9 +1798,11 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None):
         tiffiles = natsorted(glob.glob(source + '/*.tif'))
     print(tiffiles)
 
-    gt_postfixes = ['_gt_building7.xml',
-                    '_gt_landslide10.xml',
-                    '_gt_water6.xml']
+    gt_postfixes = [
+        # '_gt_building7.xml',
+        # '_gt_landslide10.xml',
+        '_gt_water6.xml'
+    ]
                     # '_gt_tree8.xml',
                     # '_gt_flood12.xml']
     random_gt_ratios = [0.2, 0.8, 0.1, 0.1]
@@ -1809,6 +1811,8 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None):
     opacity = 0.5
 
     lines = []
+    size0 = 10000
+    size1 = -1
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -1866,9 +1870,6 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None):
             # cv2.imwrite(mask_savefilename, mask)
             if not os.path.exists(mask_savefilename):
                 cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
-
-        size0 = 10000
-        size1 = -1
 
         for aug_time in range(aug_times):
             for pi1, (gt_polys, gt_labels) in enumerate(zip(all_gt_polys, all_gt_labels)):
