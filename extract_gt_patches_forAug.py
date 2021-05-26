@@ -1766,7 +1766,8 @@ def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
 
 
 # random points according to the ground truth polygons
-def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None):
+def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None,
+                  gt_postfixes=None):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -1798,16 +1799,8 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None):
         tiffiles = natsorted(glob.glob(source + '/*.tif'))
     print(tiffiles)
 
-    gt_postfixes = [
-        # '_gt_building7.xml',
-        # '_gt_landslide10.xml',
-        '_gt_water6.xml'
-    ]
-                    # '_gt_tree8.xml',
-                    # '_gt_flood12.xml']
     random_gt_ratios = [0.2, 0.8, 0.1, 0.1]
-    palette = np.random.randint(
-        0, 255, size=(len(gt_postfixes), 3))
+    palette = np.random.randint(0, 255, size=(len(gt_postfixes), 3))
     opacity = 0.5
 
     lines = []
@@ -2003,14 +1996,27 @@ if __name__ == '__main__':
     crop_width = args.crop_width
     update_cache = args.update_cache
 
+    # for semantic segmentation
     if aug_type == 'mc_seg_v1':
-        if hostname == 'master':
-            save_root = '/media/ubuntu/Data/gd_mc_seg_Aug%d/%s/' % (aug_times, aug_type)
-        else:
-            save_root = 'E:/gd_mc_seg_Aug%d/%s/' % (aug_times, aug_type)
+        # '_gt_building7.xml',
+        # '_gt_landslide10.xml',
+        # '_gt_water6.xml'
+        # '_gt_tree8.xml',
+        # '_gt_flood12.xml'
+        gt_postfixes, gt_name = ['_gt_water6.xml'], 'water6'
+        gt_postfixes, gt_name = ['_gt_building7.xml'], 'building7'
+        gt_postfixes, gt_name = ['_gt_landslide10.xml'], 'landslide10'
+        gt_postfixes, gt_name = ['_gt_road9.xml'], 'road9'
 
-        aug_mc_seg_v1(subset=subset, aug_times=aug_times, save_img=save_img, save_root=save_root)
+        if hostname == 'master':
+            save_root = '/media/ubuntu/Data/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
+        else:
+            save_root = 'E:/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
+
+        aug_mc_seg_v1(subset=subset, aug_times=aug_times, save_img=save_img, save_root=save_root,
+                      gt_postfixes=gt_postfixes)
         sys.exit(-1)
+
 
     # for detection aug
     if hostname == 'master':
