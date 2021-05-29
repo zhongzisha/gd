@@ -2007,6 +2007,13 @@ if __name__ == '__main__':
         gt_postfixes, gt_name = ['_gt_building7.xml'], 'building7'
         gt_postfixes, gt_name = ['_gt_landslide10.xml'], 'landslide10'
         gt_postfixes, gt_name = ['_gt_road9.xml'], 'road9'
+        gt_postfixes = [
+            '_gt_building7.xml',
+            '_gt_water6.xml',
+            '_gt_road9.xml',
+            '_gt_landslide10.xml'
+        ]
+        gt_name = '4classes'
 
         if hostname == 'master':
             save_root = '/media/ubuntu/Data/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
