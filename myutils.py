@@ -11,6 +11,8 @@ from numba import jit
 from scipy.ndimage.interpolation import map_coordinates
 from scipy.ndimage.filters import gaussian_filter
 
+from osgeo import gdal, ogr, osr
+
 
 def xyxy2xywh(x):
     # Convert nx4 boxes from [x1, y1, x2, y2] to [x, y, w, h] where xy1=top-left, xy2=bottom-right
@@ -679,6 +681,113 @@ def save_predictions_to_envi_xml(preds, save_xml_filename, gdal_proj_info, gdal_
 
     with open(save_xml_filename, 'w') as fp:
         fp.writelines(lines)
+
+
+# numpy array to envi shapefile using gdal
+def save_predictions_to_envi_xml_and_shp(preds, save_xml_filename, gdal_proj_info, gdal_trans_info,
+                                         names=None, colors=None, is_line=False):
+    if names is None:
+        names = {0: '1', 1: '2'}
+    if colors is None:
+        colors = {0: "255,0,0", 1: "0,0,255"}
+
+    def get_coords(xmin, ymin, xmax, ymax):
+        # [xmin, ymin]
+        x1 = gdal_trans_info[0] + (xmin + 0.5) * gdal_trans_info[1] + (ymin + 0.5) * gdal_trans_info[2]
+        y1 = gdal_trans_info[3] + (xmin + 0.5) * gdal_trans_info[4] + (ymin + 0.5) * gdal_trans_info[5]
+
+        # [xmax, ymax]
+        x3 = gdal_trans_info[0] + (xmax + 0.5) * gdal_trans_info[1] + (ymax + 0.5) * gdal_trans_info[2]
+        y3 = gdal_trans_info[3] + (xmax + 0.5) * gdal_trans_info[4] + (ymax + 0.5) * gdal_trans_info[5]
+
+        if is_line:
+            return [x1, y1, x3, y3]
+        else:
+            # [xmax, ymin]
+            x2 = gdal_trans_info[0] + (xmax + 0.5) * gdal_trans_info[1] + (ymin + 0.5) * gdal_trans_info[2]
+            y2 = gdal_trans_info[3] + (xmax + 0.5) * gdal_trans_info[4] + (ymin + 0.5) * gdal_trans_info[5]
+            # [xmin, ymax]
+            x4 = gdal_trans_info[0] + (xmin + 0.5) * gdal_trans_info[1] + (ymax + 0.5) * gdal_trans_info[2]
+            y4 = gdal_trans_info[3] + (xmin + 0.5) * gdal_trans_info[4] + (ymax + 0.5) * gdal_trans_info[5]
+
+            return [x1, y1, x2, y2, x3, y3, x4, y4, x1, y1]
+
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>\n<RegionsOfInterest version="1.0">\n']
+    # names = {0: '1', 1: '2'}
+    # create output file
+    save_shp_filename = save_xml_filename.replace('.xml', '.shp')
+    print('xml filename', save_xml_filename)
+    print('shp filename', save_shp_filename)
+    outDriver = ogr.GetDriverByName('ESRI Shapefile')
+    if os.path.exists(save_shp_filename):
+        os.remove(save_shp_filename)
+    outDataSource = outDriver.CreateDataSource(save_shp_filename)
+
+    is_gt = False
+    if len(preds) > 0:
+        is_gt = len(preds[0]) == 5
+
+    for current_label, label_name in names.items():
+        if is_line:
+            outLayer = outDataSource.CreateLayer(save_shp_filename, geom_type=ogr.wkbLineString)
+        else:
+            outLayer = outDataSource.CreateLayer(save_shp_filename, geom_type=ogr.wkbPolygon)
+        featureDefn = outLayer.GetLayerDefn()
+
+        lines1 = ['<Region name="%s" color="%s">\n' % (label_name, colors[current_label]),
+                  '<GeometryDef>\n<CoordSysStr>%s</CoordSysStr>\n' % (
+                      gdal_proj_info if gdal_proj_info != '' else 'none')]  # 这里不能有换行符
+
+        count = 0
+        for i, pred in enumerate(preds):
+            if is_gt:
+                xmin, ymin, xmax, ymax, label = pred
+                label = int(label) - 1  # label==0: 杆塔, label==1: 绝缘子
+            else:
+                xmin, ymin, xmax, ymax, score, label = pred
+                label = int(label)  # label==0: 杆塔, label==1: 绝缘子
+
+            if label == current_label:
+                coords = get_coords(xmin, ymin, xmax, ymax)
+
+                if is_line:
+                    lines1.append('<LineString>\n<Coordinates>\n')
+                    lines1.append('%s\n' % (" ".join(['%.6f' % val for val in coords])))
+                    lines1.append('</Coordinates>\n</LineString>\n')
+
+                    ring = ogr.Geometry(ogr.wkbLineString)
+                    for xx, yy in np.array(coords).reshape((-1, 2)):
+                        ring.AddPoint(xx, yy)
+
+                else:
+                    lines1.append('<Polygon>\n<Exterior>\n<LinearRing>\n<Coordinates>\n')
+                    lines1.append('%s\n' % (" ".join(['%.6f' % val for val in coords])))
+                    lines1.append('</Coordinates>\n</LinearRing>\n</Exterior>\n</Polygon>\n')
+
+                    ring = ogr.Geometry(ogr.wkbLinearRing)
+                    for xx, yy in np.array(coords).reshape((-1, 2)):
+                        ring.AddPoint(xx, yy)
+                    poly = ogr.Geometry(ogr.wkbPolygon)
+                    poly.AddGeometry(ring)
+
+                    # add new geom to layer
+                    outFeature = ogr.Feature(featureDefn)
+                    outFeature.SetGeometry(poly)
+                    outLayer.CreateFeature(outFeature)
+                    outFeature = None
+
+                count += 1
+        lines1.append('</GeometryDef>\n</Region>\n')
+
+        if count > 0:
+            lines.append(''.join(lines1))
+
+    outDataSource = None
+    lines.append('</RegionsOfInterest>\n')
+
+    with open(save_xml_filename, 'w') as fp:
+        fp.writelines(lines)
+
 
 
 def save_predictions_to_envi_xml_bak(preds, save_xml_filename, gdal_proj_info, gdal_trans_info,
