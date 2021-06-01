@@ -142,3 +142,57 @@ if __name__ == "__main__":
               (-106.4904187, 23.10676788), (-106.4903676, 23.07401321), (-106.4903098, 23.04126832), (-106.4902512, 23.00849426), (-106.4901979, 22.97572025), (-106.490196, 22.97401001), (-106.6481193, 22.95609832), (-106.6481156, 22.95801668), (-106.6480697, 22.99082052), (-106.6480307, 23.02362441), (-106.6479937, 23.0563977), (-106.6479473, 23.0891833), (-106.647902, 23.12196713), (-106.6478733, 23.15474057), (-106.6478237, 23.18750353), (-106.6477752, 23.22026138), (-106.6477389, 23.25302505), (-106.647701, 23.28577123), (-106.6476562, 23.31851549), (-106.6476211, 23.3512557), (-106.6475745, 23.38397935), (-106.6475231, 23.41671055), (-106.6474863, 23.44942382), (-106.6474432, 23.48213255), (-106.6474017, 23.51484861), (-106.6474626, 23.54747418), (-106.647766, 23.57991134), (-106.6482374, 23.61220905), (-106.6484783, 23.64467084), (-106.6482308, 23.6775148), (-106.6479338, 23.7103854), (-106.6478395, 23.74309074), (-106.6472376, 23.77618646), (-106.6472982, 23.80876072), (-106.647127, 23.84151129), (-106.6471277, 23.8741312), (-106.6473995, 23.90656505), (-106.6473138, 23.93916488), (-106.6473408, 23.97172031), (-106.6473796, 24.00435261), (-106.6472953, 24.0370137)]
     out_shp = r'X:\temp\polygon.shp'
     main(coords, out_shp)
+
+__autor__ = """Igor Lugo (lugoigor@gmail.com)"""
+
+import sys, os
+import numpy as np
+from osgeo import ogr
+
+# Importing data
+openFileLines = 'path/to/lineString/data/as/dictionary.npy'
+length_lineString = np.load(openFileLines).item()
+
+
+def createShapefile():
+    # Getting shapefile driver
+    driver = ogr.GetDriverByName('ESRI Shapefile')
+
+    # Setting work directory
+    os.chdir('path/to/save/new/shapefile/dir/name')
+
+    # Creating a new data source and layer
+    if os.path.exists('shapefileName.shp'):
+        driver.DeleteDataSource('shapefileName.shp')
+
+    ds = driver.CreateDataSource('shapefileName.shp')
+    if ds is None:
+        print ('Could not create file')
+        sys.exit(1)
+
+    layer = ds.CreateLayer('layerName', geom_type=ogr.wkbLineString)
+
+    # add a field to the output
+    fieldDefn = ogr.FieldDefn('fieldName', ogr.OFTReal)
+    layer.CreateField(fieldDefn)
+
+    cnt = 0
+
+    for k, v in length_lineString.iteritems():
+        cnt += 1
+        lineString = ogr.Geometry(ogr.wkbLineString)
+        for m in v:
+            lineString.AddPoint(m[0], m[1])
+
+        featureDefn = layer.GetLayerDefn()
+        feature = ogr.Feature(featureDefn)
+        feature.SetGeometry(lineString)
+        feature.SetField('fieldName', k)
+        layer.CreateFeature(feature)
+
+        lineString.Destroy()
+        feature.Destroy()
+
+    ds.Destroy()
+
+    print ("Shapefile created")

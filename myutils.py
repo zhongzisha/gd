@@ -581,6 +581,129 @@ class LoadImages:  # for inference
         return self.nf  # number of files
 
 
+class LoadMasks:  # for inference
+    def __init__(self, gdal_ds, xoffset, yoffset, width, height,
+                 batchsize=32, subsize=1024, gap=128, stride=32,
+                 return_list=False, is_nchw=True, return_positions=False):
+        self.batchsize = batchsize
+        self.subsize = subsize
+        self.gap = gap
+        self.slide = subsize - gap
+        self.return_list = return_list
+        self.is_nchw = is_nchw
+        self.return_positions = return_positions
+
+        self.height = height
+        self.width = width
+        self.img0 = np.zeros((height, width), dtype=np.uint8)  # RGB format
+        print('11111111111', xoffset, yoffset, width, height)
+        # for b in range(3):
+        #     band = gdal_ds.GetRasterBand(b + 1)
+        #     self.img0[:, :, b] = band.ReadAsArray(xoffset, yoffset, win_xsize=width, win_ysize=height)
+        #     # self.img0[:, :, b] = band.ReadRaster(xoffset, yoffset, width, height)
+        # self.img0[:height, :width] = big_mask_img[int(yoffset):int(yoffset + height), int(xoffset):(xoffset + width)]
+        band = gdal_ds.GetRasterBand(1)
+        self.img0[:height, :width] = band.ReadAsArray(xoffset, yoffset, win_xsize=width, win_ysize=height)
+
+        self.start_positions = []
+        left, up = 0, 0
+        while left < width:
+            # if left + self.subsize >= width:
+            #     left = max(width - self.subsize, 0)
+            up = 0
+            while up < height:
+                # if up + self.subsize >= height:
+                #     up = max(height - self.subsize, 0)
+                right = min(left + self.subsize, width - 1)
+                down = min(up + self.subsize, height - 1)
+
+                subimg = self.img0[up: (up + self.subsize), left: (left + self.subsize)]
+                minval = subimg.min()
+                maxval = subimg.max()
+                if maxval > minval:
+                    self.start_positions.append([left, up])
+
+                if up + self.subsize >= height:
+                    break
+                else:
+                    up = up + self.slide
+            if left + self.subsize >= width:
+                break
+            else:
+                left = left + self.slide
+
+        print('start_positions: ', self.start_positions[:10])
+        print('len(start_positions): ', len(self.start_positions))
+        print('height', self.height)
+        print('width', self.width)
+        print('shape', self.img0.shape)
+        # subimg = copy.deepcopy(self.img0[:5120, :5120, :])
+        # cv2.imwrite('1.jpg', subimg)
+        # subimg = copy.deepcopy(self.img0[5120 * 2:(5120 * 3), 5120 * 2:(5120 * 3), :])
+        # cv2.imwrite('2.jpg', subimg)
+        # subimg = copy.deepcopy(self.img0[5120 * 3:(5120 * 4), 5120 * 2:(5120 * 3), :])
+        # cv2.imwrite('3.jpg', subimg)
+        # subimg = copy.deepcopy(self.img0[:5120, :5120, :])
+        # cv2.imwrite('11.jpg', subimg[:, :, ::-1])
+        # subimg = copy.deepcopy(self.img0[5120 * 2:(5120 * 3), 5120 * 2:(5120 * 3), :])
+        # cv2.imwrite('21.jpg', subimg[:, :, ::-1])
+        # subimg = copy.deepcopy(self.img0[5120 * 3:(5120 * 4), 5120 * 2:(5120 * 3), :])
+        # cv2.imwrite('31.jpg', subimg[:, :, ::-1])
+        self.stride = stride
+        self.nf = len(self.start_positions)  # number of sub images
+
+        self.mode = 'image'
+        self.cap = None
+
+    def __iter__(self):
+        self.count = 0
+        return self
+
+    def __next__(self):
+        if self.count >= self.nf:
+            raise StopIteration
+
+        batch_imgs = []
+        batch_positions = []
+        if not self.return_list:
+            for bi in range(self.batchsize):
+                if self.count == self.nf:
+                    break
+                left, up = self.start_positions[self.count]
+                subimg = copy.deepcopy(self.img0[up: (up + self.subsize), left: (left + self.subsize)])
+                h, w = np.shape(subimg)
+                outimg = np.zeros((self.subsize, self.subsize), dtype=subimg.dtype)
+                outimg[0:h, 0:w] = subimg
+                # batch_imgs.append(outimg.transpose((2, 0, 1)))  # RGB, to 3x416x416
+                batch_imgs.append(outimg)
+                batch_positions.append([left, up])
+                self.count += 1
+
+            batch_imgs = np.stack(batch_imgs)
+            batch_imgs = np.ascontiguousarray(batch_imgs)  #
+        else:
+            for bi in range(self.batchsize):
+                if self.count == self.nf:
+                    break
+                left, up = self.start_positions[self.count]
+                subimg = copy.deepcopy(self.img0[up: (up + self.subsize), left: (left + self.subsize)])
+                h, w = np.shape(subimg)
+                outimg = np.zeros((self.subsize, self.subsize), dtype=subimg.dtype)
+                outimg[0:h, 0:w] = subimg
+                # batch_imgs.append(outimg.transpose((2, 0, 1)))  # RGB, to 3x416x416
+                batch_imgs.append(outimg)
+                batch_positions.append([left, up])
+                self.count += 1
+
+        if self.return_positions:
+            return batch_imgs, batch_positions
+        else:
+            return batch_imgs
+
+    def __len__(self):
+        return self.nf  # number of files
+
+
 def get_gt_boxes(gt_xml_filename):
     DomTree = xml.dom.minidom.parse(gt_xml_filename)
     annotation = DomTree.documentElement
@@ -694,7 +817,8 @@ def save_predictions_to_envi_xml(preds, save_xml_filename, gdal_proj_info, gdal_
 
 # numpy array to envi shapefile using gdal
 def save_predictions_to_envi_xml_and_shp(preds, save_xml_filename, gdal_proj_info, gdal_trans_info,
-                                         names=None, colors=None, is_line=False, spatialreference=None):
+                                         names=None, colors=None, is_line=False, spatialreference=None,
+                                         is_save_xml=True):
     if names is None:
         names = {0: 'GanTa', 1: 'JueYuanZi'}
     if colors is None:
@@ -702,6 +826,9 @@ def save_predictions_to_envi_xml_and_shp(preds, save_xml_filename, gdal_proj_inf
 
     print('names', names)
     print('colors', colors)
+    print('spatialreference', spatialreference)
+    print('gdal_proj_info', gdal_proj_info)
+    print('gdal_trans_info', gdal_trans_info)
 
     def get_coords(xmin, ymin, xmax, ymax):
         # [xmin, ymin]
@@ -734,9 +861,11 @@ def save_predictions_to_envi_xml_and_shp(preds, save_xml_filename, gdal_proj_inf
     outDriver = ogr.GetDriverByName('ESRI Shapefile')
     shp_save_dir = os.path.join(save_path, file_prefix)
     print('shp_save_dir', shp_save_dir)
-    if os.path.exists(os.path.join(save_path, file_prefix)):
-        shutil.rmtree(shp_save_dir, ignore_errors=True)
-    os.makedirs(shp_save_dir)
+    # if os.path.exists(shp_save_dir):
+    #     shutil.rmtree(shp_save_dir, ignore_errors=True)
+    # os.makedirs(shp_save_dir)
+    if not os.path.exists(shp_save_dir):
+        os.makedirs(shp_save_dir)
 
     is_gt = False
     if len(preds) > 0:
@@ -778,26 +907,34 @@ def save_predictions_to_envi_xml_and_shp(preds, save_xml_filename, gdal_proj_inf
                     lines1.append('%s\n' % (" ".join(['%.6f' % val for val in coords])))
                     lines1.append('</Coordinates>\n</LineString>\n')
 
-                    ring = ogr.Geometry(ogr.wkbLineString)
-                    for xx, yy in np.array(coords).reshape((-1, 2)):
-                        ring.AddPoint(xx, yy)
+                    coords = np.array(coords).reshape((-1, 2)).astype(np.float64)
+                    if gdal_proj_info is None:
+                        coords *= 0.013888889
+
+                    poly = ogr.Geometry(ogr.wkbLineString)
+                    for xx, yy in coords:
+                        poly.AddPoint(xx, yy)
 
                 else:
                     lines1.append('<Polygon>\n<Exterior>\n<LinearRing>\n<Coordinates>\n')
                     lines1.append('%s\n' % (" ".join(['%.6f' % val for val in coords])))
                     lines1.append('</Coordinates>\n</LinearRing>\n</Exterior>\n</Polygon>\n')
 
+                    coords = np.array(coords).reshape((-1, 2)).astype(np.float64)
+                    if gdal_proj_info is None:
+                        coords *= 0.013888889
+                        
                     ring = ogr.Geometry(ogr.wkbLinearRing)
-                    for xx, yy in np.array(coords).reshape((-1, 2)):
+                    for xx, yy in coords:
                         ring.AddPoint(xx, yy)
                     poly = ogr.Geometry(ogr.wkbPolygon)
                     poly.AddGeometry(ring)
 
-                    # add new geom to layer
-                    outFeature = ogr.Feature(featureDefn)
-                    outFeature.SetGeometry(poly)
-                    outLayer.CreateFeature(outFeature)
-                    outFeature = None
+                # add new geom to layer
+                outFeature = ogr.Feature(featureDefn)
+                outFeature.SetGeometry(poly)
+                outLayer.CreateFeature(outFeature)
+                outFeature = None
 
                 scores.append(score)
                 count += 1
@@ -812,11 +949,12 @@ def save_predictions_to_envi_xml_and_shp(preds, save_xml_filename, gdal_proj_inf
 
     lines.append('</RegionsOfInterest>\n')
 
-    with open(save_xml_filename, 'w') as fp:
-        fp.writelines(lines)
-    np.savetxt(save_xml_filename.replace('.xml', '_scores.txt'),
-               np.array(scores, dtype=np.float32),
-               fmt='%.6f', delimiter=',', encoding='utf-8-sig')
+    if len(lines) > 0 and is_save_xml:
+        with open(save_xml_filename, 'w') as fp:
+            fp.writelines(lines)
+        np.savetxt(save_xml_filename.replace('.xml', '_scores.txt'),
+                   np.array(scores, dtype=np.float32),
+                   fmt='%.6f', delimiter=',', encoding='utf-8')
 
 
 def save_predictions_to_envi_xml_bak(preds, save_xml_filename, gdal_proj_info, gdal_trans_info,
@@ -941,7 +1079,8 @@ def load_gt_from_txt(filename):
     return boxes, labels
 
 
-def load_gt_from_esri_xml(filename, gdal_trans_info, mapcoords2pixelcoords=True, has_scores=False):
+def load_gt_from_esri_xml(filename, gdal_trans_info, mapcoords2pixelcoords=True, has_scores=False,
+                          labels_map={"GanTa": 1, "JueYuanZi": 2}):
     if not os.path.exists(filename):
         if has_scores:
             return [], [], []
@@ -978,7 +1117,10 @@ def load_gt_from_esri_xml(filename, gdal_trans_info, mapcoords2pixelcoords=True,
                 x1, y1, x3, y3 = xmin, ymin, xmax, ymax
 
             boxes.append(np.array([x1, y1, x3, y3]))
-            labels.append(int(float(label)))  # 0 is gan, 1 is jueyuanzi
+            try:
+                labels.append(int(float(label)))  # 0 is gan, 1 is jueyuanzi
+            except:
+                labels.append(int(float(labels_map[label])))
 
     if has_scores:
         scores = np.loadtxt(filename.replace('.xml', '_scores.txt'))
