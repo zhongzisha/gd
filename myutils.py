@@ -1,4 +1,4 @@
-import os
+import os,shutil
 import copy
 import glob
 import numpy as np
@@ -6,7 +6,16 @@ import torch
 import cv2
 import xml.dom.minidom
 from pathlib import Path
+
+import matplotlib.pylab as pylab
 import matplotlib.pyplot as plt
+
+params = {'font.sans-serif': ['FangSong', 'SimHei', 'KaiTi'],
+          'font.size': 12,
+          'axes.unicode_minus': False}  # define pyplot parameters
+pylab.rcParams.update(params)
+
+
 from numba import jit
 from scipy.ndimage.interpolation import map_coordinates
 from scipy.ndimage.filters import gaussian_filter
@@ -611,11 +620,11 @@ def get_gt_boxes(gt_xml_filename):
 
 
 def save_predictions_to_envi_xml(preds, save_xml_filename, gdal_proj_info, gdal_trans_info,
-                                 names=None, colors=None, is_line=False):
+                                 names=None, colors=None, is_line=False, spatialreference=None):
     if names is None:
-        names = {0: '1', 1: '2'}
+        names = {0: 'GanTa', 1: 'JueYuanZi'}
     if colors is None:
-        colors = {0: "255,0,0", 1: "0,0,255"}
+        colors = {0: [255, 0, 0], 1: [0, 0, 255]}
 
     def get_coords_str(xmin, ymin, xmax, ymax):
         # [xmin, ymin]
@@ -646,7 +655,7 @@ def save_predictions_to_envi_xml(preds, save_xml_filename, gdal_proj_info, gdal_
         is_gt = len(preds[0]) == 5
 
     for current_label, label_name in names.items():
-        lines1 = ['<Region name="%s" color="%s">\n' % (label_name, colors[current_label]),
+        lines1 = ['<Region name="%s" color="%s">\n' % (label_name, ','.join([str(val) for val in colors[current_label]])),
                   '<GeometryDef>\n<CoordSysStr>%s</CoordSysStr>\n' % (
                       gdal_proj_info if gdal_proj_info != '' else 'none')]  # 这里不能有换行符
 
@@ -685,11 +694,14 @@ def save_predictions_to_envi_xml(preds, save_xml_filename, gdal_proj_info, gdal_
 
 # numpy array to envi shapefile using gdal
 def save_predictions_to_envi_xml_and_shp(preds, save_xml_filename, gdal_proj_info, gdal_trans_info,
-                                         names=None, colors=None, is_line=False):
+                                         names=None, colors=None, is_line=False, spatialreference=None):
     if names is None:
-        names = {0: '1', 1: '2'}
+        names = {0: 'GanTa', 1: 'JueYuanZi'}
     if colors is None:
-        colors = {0: "255,0,0", 1: "0,0,255"}
+        colors = {0: [255, 0, 0], 1: [0, 0, 255]}
+
+    print('names', names)
+    print('colors', colors)
 
     def get_coords(xmin, ymin, xmax, ymax):
         # [xmin, ymin]
@@ -715,26 +727,36 @@ def save_predictions_to_envi_xml_and_shp(preds, save_xml_filename, gdal_proj_inf
     lines = ['<?xml version="1.0" encoding="UTF-8"?>\n<RegionsOfInterest version="1.0">\n']
     # names = {0: '1', 1: '2'}
     # create output file
-    save_shp_filename = save_xml_filename.replace('.xml', '.shp')
-    print('xml filename', save_xml_filename)
-    print('shp filename', save_shp_filename)
+    save_path = os.path.dirname(os.path.abspath(save_xml_filename))
+    print('save_path', save_path)
+    file_prefix = save_xml_filename.split(os.sep)[-1].replace('.xml', '')
+    print('file_prefix', file_prefix)
     outDriver = ogr.GetDriverByName('ESRI Shapefile')
-    if os.path.exists(save_shp_filename):
-        os.remove(save_shp_filename)
-    outDataSource = outDriver.CreateDataSource(save_shp_filename)
+    shp_save_dir = os.path.join(save_path, file_prefix)
+    print('shp_save_dir', shp_save_dir)
+    if os.path.exists(os.path.join(save_path, file_prefix)):
+        shutil.rmtree(shp_save_dir, ignore_errors=True)
+    os.makedirs(shp_save_dir)
 
     is_gt = False
     if len(preds) > 0:
         is_gt = len(preds[0]) == 5
 
+    scores = []
+
     for current_label, label_name in names.items():
+        print(current_label, label_name, colors[current_label])
+        save_shp_filename = os.path.join(shp_save_dir, label_name + '.shp')
+        if os.path.exists(save_shp_filename):
+            os.remove(save_shp_filename)
+        outDataSource = outDriver.CreateDataSource(save_shp_filename)
         if is_line:
-            outLayer = outDataSource.CreateLayer(save_shp_filename, geom_type=ogr.wkbLineString)
+            outLayer = outDataSource.CreateLayer(label_name, spatialreference, geom_type=ogr.wkbLineString)
         else:
-            outLayer = outDataSource.CreateLayer(save_shp_filename, geom_type=ogr.wkbPolygon)
+            outLayer = outDataSource.CreateLayer(label_name, spatialreference, geom_type=ogr.wkbPolygon)
         featureDefn = outLayer.GetLayerDefn()
 
-        lines1 = ['<Region name="%s" color="%s">\n' % (label_name, colors[current_label]),
+        lines1 = ['<Region name="%s" color="%s">\n' % (label_name, ','.join([str(val) for val in colors[current_label]])),
                   '<GeometryDef>\n<CoordSysStr>%s</CoordSysStr>\n' % (
                       gdal_proj_info if gdal_proj_info != '' else 'none')]  # 这里不能有换行符
 
@@ -742,6 +764,7 @@ def save_predictions_to_envi_xml_and_shp(preds, save_xml_filename, gdal_proj_inf
         for i, pred in enumerate(preds):
             if is_gt:
                 xmin, ymin, xmax, ymax, label = pred
+                score = 0.999
                 label = int(label) - 1  # label==0: 杆塔, label==1: 绝缘子
             else:
                 xmin, ymin, xmax, ymax, score, label = pred
@@ -776,22 +799,28 @@ def save_predictions_to_envi_xml_and_shp(preds, save_xml_filename, gdal_proj_inf
                     outLayer.CreateFeature(outFeature)
                     outFeature = None
 
+                scores.append(score)
                 count += 1
         lines1.append('</GeometryDef>\n</Region>\n')
 
         if count > 0:
             lines.append(''.join(lines1))
 
-    outDataSource = None
+        featureDefn = None
+        outLayer = None
+        outDataSource = None
+
     lines.append('</RegionsOfInterest>\n')
 
     with open(save_xml_filename, 'w') as fp:
         fp.writelines(lines)
-
+    np.savetxt(save_xml_filename.replace('.xml', '_scores.txt'),
+               np.array(scores, dtype=np.float32),
+               fmt='%.6f', delimiter=',', encoding='utf-8-sig')
 
 
 def save_predictions_to_envi_xml_bak(preds, save_xml_filename, gdal_proj_info, gdal_trans_info,
-                                     names=None, colors=None):
+                                     names=None, colors=None, spatialreference=None):
     if names is None:
         names = {0: '1', 1: '2'}
     if colors is None:
@@ -912,9 +941,12 @@ def load_gt_from_txt(filename):
     return boxes, labels
 
 
-def load_gt_from_esri_xml(filename, gdal_trans_info, mapcoords2pixelcoords=True):
+def load_gt_from_esri_xml(filename, gdal_trans_info, mapcoords2pixelcoords=True, has_scores=False):
     if not os.path.exists(filename):
-        return [], []
+        if has_scores:
+            return [], [], []
+        else:
+            return [], []
     DomTree = xml.dom.minidom.parse(filename)
     annotation = DomTree.documentElement
     regionlist = annotation.getElementsByTagName('Region')
@@ -948,7 +980,11 @@ def load_gt_from_esri_xml(filename, gdal_trans_info, mapcoords2pixelcoords=True)
             boxes.append(np.array([x1, y1, x3, y3]))
             labels.append(int(float(label)))  # 0 is gan, 1 is jueyuanzi
 
-    return boxes, labels
+    if has_scores:
+        scores = np.loadtxt(filename.replace('.xml', '_scores.txt'))
+        return boxes, labels, scores
+    else:
+        return boxes, labels
 
 
 # 从envi的xml中获取polygons,这些多边形就是点组成
