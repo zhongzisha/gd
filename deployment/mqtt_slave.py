@@ -1,5 +1,5 @@
 import os
-# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import numpy as np
 from sklearn.cluster import DBSCAN
 import torch
@@ -26,9 +26,11 @@ class Worker:
         self.save_root = './results/'
 
         if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-            self.device = torch.device('cuda:0')
+            self.device = "cuda:0"
+            self.batchsize = 32
         else:
-            self.device = torch.device('cpu')
+            self.device = "cpu"
+            self.batchsize = 64
 
         self.model = init_detector(config, weights, device=self.device)
         self.names = {0: 'GanTa', 1: 'JueYuanZi'}
@@ -38,12 +40,12 @@ class Worker:
             os.makedirs(self.save_root)
 
     def run(self, client, data_dict):
-        device = self.device
+        device = torch.device(self.device)
         imgsz = 1024
         gap = 256
         gt_gap = 128
         big_subsize = 10240
-        batchsize = 4
+        batchsize = self.batchsize
         score_thr = 0.1
         hw_thr = 10
 
