@@ -3034,7 +3034,7 @@ def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
         time.sleep(3)
 
         # mask_ds = gdal.Open(mask_savefilename, gdal.GA_ReadOnly)
-        offsets = compute_offsets(height=orig_height, width=orig_width, subsize=2048, gap=0)
+        offsets = compute_offsets(height=orig_height, width=orig_width, subsize=1024, gap=0)
 
         for oi, (xoffset, yoffset, sub_width, sub_height) in enumerate(offsets):  # left, up
             # sub_width = min(orig_width, big_subsize)
@@ -3091,7 +3091,7 @@ def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
             size0 = min(size0, min(img1.shape[:2]))
             size1 = max(size1, max(img1.shape[:2]))
 
-            save_prefix = '%03d_%d_%d_%d' % (ti, oi)
+            save_prefix = '%03d_%d' % (ti, oi)
             cv2.imwrite('%s/%s.jpg' % (images_root, save_prefix), img1)  # 不能有中文
             cv2.imwrite('%s/%s.png' % (labels_root, save_prefix), seg1)
 
