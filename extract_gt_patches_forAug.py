@@ -421,14 +421,14 @@ def check_dataset(subset='train'):
             fp.writelines(lines)
 
 
-def check_fg_images(subset='train', save_root=None):
+def check_fg_images_v1(subset='train', save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
-        gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
+        gt_dir = 'G:/gddata/aerial'  # sys.argv[2]
 
     save_dir = '%s/%s/' % (save_root, subset)
     if not os.path.exists(save_dir):
@@ -503,6 +503,7 @@ def check_fg_images(subset='train', save_root=None):
                                       valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
+            print('no gt boxes')
             continue
 
         for j, (box, label) in enumerate(zip(gt_boxes, gt_labels)):  # per item
@@ -562,7 +563,7 @@ def check_fg_images(subset='train', save_root=None):
                         sub_w = width
                         sub_h = height
 
-                        save_prefix = '%d_%d' % (ti, j)
+                        save_prefix = 'class%d_%d_%d' % (label, ti, j)
 
                         # save image
                         # for coco format
@@ -2932,7 +2933,7 @@ def aug_mc_seg_v5(subset='train', aug_times=1, save_img=False, save_root=None,
 
 # random points according to the ground truth polygons
 def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
-                  gt_postfixes=None, random_count=1000):
+                  gt_postfixes=None, gt_name=None, random_count=1000):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -2973,6 +2974,22 @@ def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
     lines = []
     size0 = 10000
     size1 = -1
+
+    if 'building' in gt_name:
+        subsize = 4096
+        scale = 0.25
+    elif 'water' in gt_name:
+        subsize = 2048
+        scale = 0.5
+    elif 'road' in gt_name:
+        subsize = 2048
+        scale = 0.5
+    elif 'landslide' in gt_name:
+        subsize = 1024
+        scale = 1.0
+    else:
+        subsize = 2048
+        scale = 0.5
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -3034,7 +3051,7 @@ def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
         time.sleep(3)
 
         # mask_ds = gdal.Open(mask_savefilename, gdal.GA_ReadOnly)
-        offsets = compute_offsets(height=orig_height, width=orig_width, subsize=1024, gap=0)
+        offsets = compute_offsets(height=orig_height, width=orig_width, subsize=subsize, gap=0)
 
         for oi, (xoffset, yoffset, sub_width, sub_height) in enumerate(offsets):  # left, up
             # sub_width = min(orig_width, big_subsize)
@@ -3056,11 +3073,16 @@ def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
 
             # sample points from mask
             seg = mask[(yoffset):(yoffset + sub_height), (xoffset):(xoffset + sub_width)]
-            seg_count = len(np.where(seg > 0)[0])
-            if seg_count < 10:
-                continue
 
-            seg1 = seg
+            if scale != 1.0:
+                seg1 = cv2.resize(seg, dsize=None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+            else:
+                seg1 = seg
+
+            minsize = min(seg1.shape[:2])
+            maxsize = max(seg1.shape[:2])
+            if maxsize > 1.5 * minsize:
+                continue
 
             seg1_count = len(np.where(seg1 > 0)[0])
             if seg1_count < 10:
@@ -3071,21 +3093,20 @@ def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
             for b in range(3):
                 band = ds.GetRasterBand(b + 1)
                 img[:, :, b] = band.ReadAsArray(xoffset, yoffset, win_xsize=sub_width, win_ysize=sub_height)
-            img_sum = np.sum(img, axis=2)
-            indices_y, indices_x = np.where(img_sum > 0)
+
+            if scale != 1.0:
+                img1 = cv2.resize(img, dsize=None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+            else:
+                img1 = img
+
+            img1_sum = np.sum(img1, axis=2)
+            indices_y, indices_x = np.where(img1_sum > 0)
             if len(indices_x) == 0:
                 continue
 
-            assert img.shape[:2] == seg.shape[:2]
-
-            img1 = img[:, :, ::-1]
+            img1 = img1[:, :, ::-1]
             if len(np.where(img1[:, :, 0] == 0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
                     or len(np.where(img1[:, :, 0] == 255)[0]) > 0.4 * np.prod(img1.shape[:2]):
-                continue
-
-            minsize = min(img1.shape[:2])
-            maxsize = max(img1.shape[:2])
-            if maxsize > 1.5 * minsize:
                 continue
 
             size0 = min(size0, min(img1.shape[:2]))
@@ -3160,15 +3181,16 @@ if __name__ == '__main__':
         # '_gt_flood12.xml'
         gt_postfixes, gt_name = ['_gt_water6.xml'], 'water6'
         gt_postfixes, gt_name = ['_gt_building7.xml'], 'building7'
+
         gt_postfixes, gt_name = ['_gt_landslide10.xml'], 'landslide10'
-        gt_postfixes, gt_name = ['_gt_road9.xml'], 'road9'
-        gt_postfixes = [
-            '_gt_building7.xml',
-            '_gt_water6.xml',
-            '_gt_road9.xml',
-            '_gt_landslide10.xml'
-        ]
-        gt_name = '4classes'
+        # gt_postfixes, gt_name = ['_gt_road9.xml'], 'road9'
+        # gt_postfixes = [
+        #     '_gt_building7.xml',
+        #     '_gt_water6.xml',
+        #     '_gt_road9.xml',
+        #     '_gt_landslide10.xml'
+        # ]
+        # gt_name = '4classes'
 
         if hostname == 'master':
             save_root = '/media/ubuntu/Data/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
@@ -3209,7 +3231,7 @@ if __name__ == '__main__':
 
     if aug_type == 'check_fg_images_v1':
         save_root = '%s/%s' % (save_root, aug_type)
-        check_fg_images(subset=subset, save_root=save_root)
+        check_fg_images_v1(subset=subset, save_root=save_root)
         sys.exit(-1)
 
     if aug_type == 'check_dataset':
