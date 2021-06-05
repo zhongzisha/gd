@@ -3184,13 +3184,13 @@ if __name__ == '__main__':
 
         gt_postfixes, gt_name = ['_gt_landslide10.xml'], 'landslide10'
         # gt_postfixes, gt_name = ['_gt_road9.xml'], 'road9'
-        # gt_postfixes = [
-        #     '_gt_building7.xml',
-        #     '_gt_water6.xml',
-        #     '_gt_road9.xml',
-        #     '_gt_landslide10.xml'
-        # ]
-        # gt_name = '4classes'
+        gt_postfixes = [
+            '_gt_building7.xml',
+            '_gt_water6.xml',
+            '_gt_road9.xml',
+            '_gt_landslide10.xml'
+        ]
+        gt_name = '4classes'
 
         if hostname == 'master':
             save_root = '/media/ubuntu/Data/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
@@ -3219,7 +3219,7 @@ if __name__ == '__main__':
             sys.exit(-1)
         elif aug_type == 'mc_seg_v6':
             aug_mc_seg_v6(subset=subset, aug_times=aug_times, save_img=save_img, save_root=save_root,
-                          gt_postfixes=gt_postfixes, random_count=random_count)
+                          gt_postfixes=gt_postfixes, gt_name=gt_name, random_count=random_count)
             sys.exit(-1)
 
 
