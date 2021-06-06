@@ -2936,7 +2936,7 @@ def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
                   gt_postfixes=None, gt_name=None, random_count=1000):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -3184,16 +3184,16 @@ if __name__ == '__main__':
 
         gt_postfixes, gt_name = ['_gt_landslide10.xml'], 'landslide10'
         # gt_postfixes, gt_name = ['_gt_road9.xml'], 'road9'
-        gt_postfixes = [
-            '_gt_building7.xml',
-            '_gt_water6.xml',
-            '_gt_road9.xml',
-            '_gt_landslide10.xml'
-        ]
-        gt_name = '4classes'
+        # gt_postfixes = [
+        #     '_gt_building7.xml',
+        #     '_gt_water6.xml',
+        #     '_gt_road9.xml',
+        #     '_gt_landslide10.xml'
+        # ]
+        # gt_name = '4classes'
 
         if hostname == 'master':
-            save_root = '/media/ubuntu/Data/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
+            save_root = '/media/ubuntu/Temp/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
         else:
             save_root = 'E:/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
 
