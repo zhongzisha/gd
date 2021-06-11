@@ -334,10 +334,10 @@ def extract_fg_images_bak2(subset='train', save_root=None, do_rotate=False,
     return fg_images_filename, fg_boxes_filename
 
 
-def check_dataset(subset='train'):
+def check_dataset(subset='train', save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -346,6 +346,10 @@ def check_dataset(subset='train'):
     info_filename = os.path.join(gt_dir, '{}_infos.csv'.format(subset))
     # if os.path.exists(info_filename):
     #     return -1
+
+    save_dir = os.path.join(save_root, subset)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
     gt_postfix = '_gt_5.xml'
     valid_labels_set = [1, 2, 3, 4]
@@ -363,6 +367,7 @@ def check_dataset(subset='train'):
     colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
 
     lines = []
+    invalid_lines = []
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -399,26 +404,78 @@ def check_dataset(subset='train'):
         gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
                                       valid_labels=valid_labels_set)
 
-        if len(gt_boxes) == 0:
-            continue
+        if len(gt_boxes) > 0:
 
-        gt_boxes = np.array(gt_boxes)
-        gt_labels = np.array(gt_labels)
+            gt_boxes = np.array(gt_boxes)
+            gt_labels = np.array(gt_labels)
 
-        gt_counts = {}
-        for label in valid_labels_set:
-            inds = np.where(gt_labels == label)[0]
-            print("Class {}: {}".format(label, len(inds)))
-            gt_counts[label] = len(inds)
-        print('gt_counts', gt_counts)
-        lines.append("{},{},{},{},{},{},{},{},{}\n".format(
-            ti, orig_width, orig_height, pixelWidth, pixelHeight,
-            gt_counts[1], gt_counts[2], gt_counts[3], gt_counts[4]
-        ))
+            gt_counts = {}
+            for label in valid_labels_set:
+                inds = np.where(gt_labels == label)[0]
+                print("Class {}: {}".format(label, len(inds)))
+                gt_counts[label] = len(inds)
+            print('gt_counts', gt_counts)
+            lines.append("{},{},{},{},{},{},{},{},{}\n".format(
+                ti, orig_width, orig_height, pixelWidth, pixelHeight,
+                gt_counts[1], gt_counts[2], gt_counts[3], gt_counts[4]
+            ))
+
+            xmin0, ymin0, xmax0, ymax0 = gt_boxes[len(gt_boxes)//2, :]
+            xc = (xmin0 + xmax0) // 2
+            yc = (ymin0 + ymax0) // 2
+            width, height = xmax0 - xmin0, ymax0 - ymin0
+            length = max(width, height)
+            width = 4096  # length * 1.1 + 32
+            height = 4096  # length * 1.1 + 32
+            xoffset = max(1, xc - width // 2)
+            yoffset = max(1, yc - height // 2)
+            if xoffset + width > orig_width:
+                width = orig_width - xoffset - 1
+            if yoffset + height > orig_height:
+                height = orig_height - yoffset - 1
+            cutout = []
+            for bi in range(3):
+                band = ds.GetRasterBand(bi + 1)
+                band_data = band.ReadAsArray(int(xoffset), int(yoffset),
+                                             win_xsize=int(width),
+                                             win_ysize=int(height))
+                cutout.append(band_data)
+            cutout = np.stack(cutout, -1)  # this is RGB
+            print('minmax1', np.min(cutout), np.max(cutout))
+            cv2.imwrite('%s/%d.png' % (save_dir, ti), cutout[:, :, ::-1])
+
+        if True:
+            xc, yc = orig_width // 2, orig_height // 2
+            width = 4096  # length * 1.1 + 32
+            height = 4096  # length * 1.1 + 32
+            xoffset = max(1, xc - width // 2)
+            yoffset = max(1, yc - height // 2)
+            if xoffset + width > orig_width:
+                width = orig_width - xoffset - 1
+            if yoffset + height > orig_height:
+                height = orig_height - yoffset - 1
+            cutout = []
+            for bi in range(3):
+                band = ds.GetRasterBand(bi + 1)
+                band_data = band.ReadAsArray(int(xoffset), int(yoffset),
+                                             win_xsize=int(width),
+                                             win_ysize=int(height))
+                cutout.append(band_data)
+            cutout = np.stack(cutout, -1)  # this is RGB
+            print('minmax2', np.min(cutout), np.max(cutout)) 
+
+            if np.max(cutout) > 255:
+                invalid_lines.append(file_prefix)
+            
+            cv2.imwrite('%s/%d_center.png' % (save_dir, ti), cutout[:, :, ::-1])
+
 
     if len(lines) > 0:
         with open(info_filename, 'w', encoding='utf-8-sig') as fp:
             fp.writelines(lines)
+
+    print('invalid_lines')
+    print(invalid_lines)
 
 
 def check_fg_images_v1(subset='train', save_root=None):
@@ -731,7 +788,7 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
 def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_cache=False, debug=False):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -918,7 +975,7 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
 def extract_bg_images(subset='train', save_root=None, random_count=0, update_cache=False):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -1079,6 +1136,12 @@ def extract_bg_images(subset='train', save_root=None, random_count=0, update_cac
                     band_data = band.ReadAsArray(xmin1, ymin1, win_xsize=width, win_ysize=height)
                     cutout.append(band_data)
                 im1 = np.stack(cutout, -1)  # RGB
+
+                if np.min(im1) == np.max(im1):
+                    continue
+
+                if len(np.where(im1[:, :, 0] > 0)[0]) < 0.5 * np.prod(im1.shape[:2]):
+                    continue
 
                 cv2.imencode('.png', im1)[1].tofile('%s/bg_%d_%d.png' % (save_dir, ti, j))
 
@@ -1241,7 +1304,7 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_root=None,
 
     colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
 
-    aug_times = aug_times if subset == 'train' else 1
+    aug_times = aug_times if 'train' in subset else 1
     bg_filenames = glob.glob(bg_images_dir + '/*.png')
 
     bins = np.arange(0, 256)
@@ -1479,7 +1542,7 @@ def refine_line_aug(subset='train', aug_times=1, save_root=None,
         if not os.path.exists(p):
             os.makedirs(p)
 
-    aug_times = aug_times if subset == 'train' else 1
+    aug_times = aug_times if 'train' in subset else 1
     bg_filenames = glob.glob(bg_images_dir + '/*.png')
 
     lines = []
@@ -1522,7 +1585,7 @@ def refine_line_aug(subset='train', aug_times=1, save_root=None,
 def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -1532,7 +1595,7 @@ def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    aug_times = aug_times if subset == 'train' else 1
+    aug_times = aug_times if 'train' in subset else 1
     gt_postfix = '_gt_5.xml'
     valid_labels_set = [1, 2, 3, 4]
 
@@ -1714,6 +1777,9 @@ def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
 
                         list_lines.append('./images/%s.jpg\n' % save_prefix)
 
+                        if np.random.rand() > 0.5:
+                            save_img = True
+
                         valid_lines = []
                         for box2 in sub_gt_boxes:
                             xmin, ymin, xmax, ymax, label = box2
@@ -1768,6 +1834,258 @@ def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
 
 
 # random points according to the ground truth polygons
+def box_aug_v3(subset='train', aug_times=1, save_root=None):
+
+    hostname = socket.gethostname()
+    if hostname == 'master':
+        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
+    else:
+        source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
+        gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
+
+    save_dir = '%s/%s/' % (save_root, subset)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    aug_times = aug_times if 'train' in subset else 1
+    valid_labels_set = [1, 2, 3, 4]
+
+    save_img_path = '%s/images/' % save_dir
+    save_img_shown_path = '%s/images_shown/' % save_dir
+    save_txt_path = '%s/labels/' % save_dir
+    for p in [save_img_path, save_txt_path, save_img_shown_path]:
+        if not os.path.exists(p):
+            os.makedirs(p)
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    list_lines = []
+    data_dict = {}
+    data_dict['images'] = []
+    data_dict['categories'] = []
+    data_dict['annotations'] = []
+    for idex, name in enumerate(["1", "2", "3", "4"]):  # 1,2,3 is gan, 4 is jueyuanzi
+        single_cat = {'id': idex + 1, 'name': name, 'supercategory': name}
+        data_dict['categories'].append(single_cat)
+
+    inst_count = 1
+    image_id = 1
+
+    colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
+
+    lines = []
+    size0 = 10000
+    size1 = -1
+
+    subsizes = [1024]
+    scales = [1.0]
+
+    for ti in range(len(tiffiles)):
+        tiffile = tiffiles[ti]
+        file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+
+        print(ti, '=' * 80)
+        print(file_prefix)
+
+        ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+        print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                     ds.GetDriver().LongName))
+        print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                            ds.RasterYSize,
+                                            ds.RasterCount))
+        print("Projection is {}".format(ds.GetProjection()))
+        projection = ds.GetProjection()
+        projection_sr = osr.SpatialReference(wkt=projection)
+        projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+        geotransform = ds.GetGeoTransform()
+        xOrigin = geotransform[0]
+        yOrigin = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+        if geotransform:
+            print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+            print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+            print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+
+        print('loading gt ...')
+        gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
+
+        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+                                      valid_labels=valid_labels_set)
+
+        if len(gt_boxes) == 0:
+            continue
+
+        for si, (subsize, scale) in enumerate(zip(subsizes, scales)):
+
+            offsets = compute_offsets(height=orig_height, width=orig_width, subsize=subsize, gap=256)
+
+            for oi, (xoffset, yoffset, sub_width, sub_height) in enumerate(offsets):  # left, up
+                # sub_width = min(orig_width, big_subsize)
+                # sub_height = min(orig_height, big_subsize)
+                # if xoffset + sub_width > orig_width:
+                #     sub_width = orig_width - xoffset
+                # if yoffset + sub_height > orig_height:
+                #     sub_height = orig_height - yoffset
+                print(oi, len(offsets), xoffset, yoffset, sub_width, sub_height)
+
+                xoffset = max(1, xoffset)
+                yoffset = max(1, yoffset)
+                if xoffset + sub_width > orig_width - 1:
+                    sub_width = orig_width - 1 - xoffset
+                if yoffset + sub_height > orig_height - 1:
+                    sub_height = orig_height - 1 - yoffset
+                xoffset, yoffset, sub_width, sub_height = [int(val) for val in
+                                                           [xoffset, yoffset, sub_width, sub_height]]
+                xmin1, ymin1 = xoffset, yoffset
+                xmax1, ymax1 = xoffset + sub_w, yoffset + sub_h
+
+                # here, the sub_image box is [xoffset, yoffset, xoffset + sub_w, yoffset + sub_h]
+                # find all gt_boxes in this sub-rectangle
+                # 查找gtboxes里面，与当前框有交集的框
+                # idx1 = np.where(gt_labels >= 2)[0]
+                # boxes = gt_boxes[idx1, :]  # 得到框
+                # labels = gt_labels[idx1]
+                boxes = np.copy(gt_boxes)
+                labels = np.copy(gt_labels)
+
+                ious = box_iou_np(np.array([xmin1, ymin1, xmax1, ymax1], dtype=np.float32).reshape(-1, 4), boxes)
+                idx2 = np.where(ious > 1e-8)[1]
+                sub_gt_boxes = []
+                invalid_gt_boxes = []
+                if len(idx2) > 0:
+                    valid_boxes = boxes[idx2, :]
+                    valid_labels = labels[idx2]
+                    valid_boxes[:, [0, 2]] -= xmin1
+                    valid_boxes[:, [1, 3]] -= ymin1
+                    for box1, label1 in zip(valid_boxes.astype(np.int32), valid_labels):
+                        xmin, ymin, xmax, ymax = box1
+                        xmin1 = max(1, xmin)
+                        ymin1 = max(1, ymin)
+                        xmax1 = min(xmax, sub_w - 1)
+                        ymax1 = min(ymax, sub_h - 1)
+
+                        # here, check the new gt_box[xmin1, ymin1, xmax1, ymax1]
+                        # if the area of new gt_box is less than 0.6 of the original box, then remove this box and
+                        # record its position, to put it to zero in the image
+                        area1 = (xmax1 - xmin1) * (ymax1 - ymin1)
+                        area = (xmax - xmin) * (ymax - ymin)
+                        if area1 >= 0.6 * area:
+                            sub_gt_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
+                        else:
+                            invalid_gt_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
+                else:
+                    print('no gt boxes in this rectangle')
+                    continue
+
+                cutout = []
+                for bi in range(3):
+                    band = ds.GetRasterBand(bi + 1)
+                    band_data = band.ReadAsArray(xoffset, yoffset, win_xsize=sub_w, win_ysize=sub_h)
+                    cutout.append(band_data)
+                cutout = np.stack(cutout, -1)  # RGB
+                # cutout = im0[i][int(a[1]):int(a[3]), int(a[0]):int(a[2])]
+                # im = cv2.resize(cutout, (256, 256))  # BGR
+                # cv2.imwrite(save_filename, im)  # 不能有中文
+
+                if len(invalid_gt_boxes) > 0:
+                    for box2 in np.array(invalid_gt_boxes).astype(np.int32):
+                        xmin, ymin, xmax, ymax, label = box2
+                        cutout[ymin:ymax, xmin:xmax, :] = 0
+
+                        # check the sub_gt_boxes, remove those boxes where in invalid_gt_boxes
+                        if len(sub_gt_boxes) > 0:
+                            ious = box_iou_np(box2[:4].reshape(1, 4),
+                                              np.array(sub_gt_boxes, dtype=np.float32).reshape(-1, 5)[:, :4])
+                            idx2 = np.where(ious > 0)[1]
+                            if len(idx2) > 0:
+                                sub_gt_boxes = [box3 for ii, box3 in enumerate(sub_gt_boxes) if
+                                                ii not in idx2.tolist()]
+
+                # draw gt boxes
+                if len(sub_gt_boxes) > 0:
+                    save_prefix = '%d_%d_%d' % (ti, j, aug_time)
+
+                    # save image
+                    # for coco format
+                    single_image = {}
+                    single_image['file_name'] = save_prefix + '.jpg'
+                    single_image['id'] = image_id
+                    single_image['width'] = sub_w
+                    single_image['height'] = sub_h
+                    data_dict['images'].append(single_image)
+
+                    # for yolo format
+                    cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
+
+                    list_lines.append('./images/%s.jpg\n' % save_prefix)
+
+                    if np.random.rand() > 0.5:
+                        save_img = True
+
+                    valid_lines = []
+                    for box2 in sub_gt_boxes:
+                        xmin, ymin, xmax, ymax, label = box2
+
+                        if save_img:
+                            cv2.rectangle(cutout, (xmin, ymin), (xmax, ymax), color=colors[label],
+                                          thickness=3)
+
+                        xc1 = int((xmin + xmax) / 2)
+                        yc1 = int((ymin + ymax) / 2)
+                        w1 = xmax - xmin
+                        h1 = ymax - ymin
+
+                        valid_lines.append(
+                            "%d %f %f %f %f\n" % (label - 1, xc1 / sub_w, yc1 / sub_h, w1 / sub_w, h1 / sub_h))
+
+                        # for coco format
+                        single_obj = {'area': int(w1 * h1),
+                                      'category_id': int(label),
+                                      'segmentation': []}
+                        single_obj['segmentation'].append(
+                            [int(xmin), int(ymin), int(xmax), int(ymin),
+                             int(xmax), int(ymax), int(xmin), int(ymax)]
+                        )
+                        single_obj['iscrowd'] = 0
+
+                        single_obj['bbox'] = int(xmin), int(ymin), int(w1), int(h1)
+                        single_obj['image_id'] = image_id
+                        single_obj['id'] = inst_count
+                        data_dict['annotations'].append(single_obj)
+                        inst_count = inst_count + 1
+
+                    image_id = image_id + 1
+
+                    with open(save_txt_path + save_prefix + '.txt', 'w') as fp:
+                        fp.writelines(valid_lines)
+
+                    if save_img:
+                        cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
+
+                # im = im[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+                # im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32
+                # im /= 255.0  # 0 - 255 to 0.0 - 1.0
+                # ims.append(im)
+
+    if len(list_lines) > 0:
+        with open(save_dir + '/%s.txt' % subset, 'w') as fp:
+            fp.writelines(list_lines)
+
+        with open(save_dir + '/%s.json' % subset, 'w') as f_out:
+            json.dump(data_dict, f_out, indent=4)
+
+
+# random points according to the ground truth polygons
 def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None,
                   gt_postfixes=None):
     hostname = socket.gethostname()
@@ -1781,7 +2099,7 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None,
     save_dir = save_root
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    aug_times = aug_times if subset == 'train' else 1
+    aug_times = aug_times if 'train' in subset else 1
 
     images_root = save_dir + "/images/%s/" % subset
     labels_root = save_dir + "/annotations/%s/" % subset
@@ -1980,7 +2298,7 @@ def aug_mc_seg_v2(subset='train', aug_times=1, save_img=False, save_root=None,
     save_dir = save_root
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    aug_times = aug_times if subset == 'train' else 1
+    aug_times = aug_times if 'train' in subset else 1
 
     images_root = save_dir + "/images/%s/" % subset
     labels_root = save_dir + "/annotations/%s/" % subset
@@ -2199,8 +2517,8 @@ def aug_mc_seg_v3(subset='train', aug_times=1, save_img=False, save_root=None,
     save_dir = save_root
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    aug_times = aug_times if subset == 'train' else 1
-    sizes = [1024, 2048, 3192] if subset == 'train' else [1024]
+    aug_times = aug_times if 'train' in subset else 1
+    sizes = [1024, 2048, 3192] if 'train' in subset else [1024]
 
     images_root = save_dir + "/images/%s/" % subset
     labels_root = save_dir + "/annotations/%s/" % subset
@@ -2490,8 +2808,8 @@ def aug_mc_seg_v4(subset='train', aug_times=1, save_img=False, save_root=None,
     save_dir = save_root
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    aug_times = aug_times if subset == 'train' else 1
-    sizes = [1024, 2048, 3192] if subset == 'train' else [1024]
+    aug_times = aug_times if 'train' in subset else 1
+    sizes = [1024, 2048, 3192] if 'train' in subset else [1024]
 
     images_root = save_dir + "/images/%s/" % subset
     labels_root = save_dir + "/annotations/%s/" % subset
@@ -2728,8 +3046,8 @@ def aug_mc_seg_v5(subset='train', aug_times=1, save_img=False, save_root=None,
     save_dir = save_root
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    aug_times = aug_times if subset == 'train' else 1
-    sizes = [1024, 2048, 3192] if subset == 'train' else [1024]
+    aug_times = aug_times if 'train' in subset else 1
+    sizes = [1024, 2048, 3192] if 'train' in subset else [1024]
 
     images_root = save_dir + "/images/%s/" % subset
     labels_root = save_dir + "/annotations/%s/" % subset
@@ -2945,8 +3263,8 @@ def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
     save_dir = save_root
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    aug_times = aug_times if subset == 'train' else 1
-    sizes = [1024, 2048, 3192] if subset == 'train' else [1024]
+    aug_times = aug_times if 'train' in subset else 1
+    sizes = [1024, 2048, 3192] if 'train' in subset else [1024]
 
     images_root = save_dir + "/images/%s/" % subset
     labels_root = save_dir + "/annotations/%s/" % subset
@@ -3152,7 +3470,7 @@ def aug_mc_seg_v7(subset='train', aug_times=1, save_img=False, save_root=None):
     save_dir = save_root
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    aug_times = aug_times if subset == 'train' else 1
+    aug_times = aug_times if 'train' in subset else 1
 
     images_root = save_dir + "/images/%s/" % subset
     labels_root = save_dir + "/annotations/%s/" % subset
@@ -3431,7 +3749,7 @@ if __name__ == '__main__':
 
     # for detection aug
     if hostname == 'master':
-        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
+        save_root = '/media/ubuntu/Temp/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
     else:
         save_root = 'E:/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
 
@@ -3441,7 +3759,8 @@ if __name__ == '__main__':
         sys.exit(-1)
 
     if aug_type == 'check_dataset':
-        check_dataset(subset=subset)
+        save_root = '%s/%s' % (save_root, aug_type)
+        check_dataset(subset=subset, save_root=save_root)
         sys.exit(-1)
 
     """
@@ -3504,6 +3823,10 @@ if __name__ == '__main__':
                              fg_images_filename=fg_images_filename,
                              fg_boxes_filename=fg_boxes_filename,
                              bg_images_dir=bg_images_dir)
+
+    elif aug_type == 'box_aug_v3':
+        save_root = '%s/%s' % (save_root, aug_type)
+        box_aug_v3(subset=subset, aug_times=aug_times, save_root=save_root)
 
     elif aug_type == 'refine_line_v1':
         # TODO zzs need to generate the parallel lines like the wire
