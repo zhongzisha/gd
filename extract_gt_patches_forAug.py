@@ -481,7 +481,7 @@ def check_dataset(subset='train', save_root=None):
 def check_fg_images_v1(subset='train', save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -950,7 +950,7 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
 
                         if len(tmp_boxes_list) > 0:
                             cache_patches_list += tmp_patches_list
-                            cache_boxes_list += tmp_patches_list
+                            cache_boxes_list += tmp_boxes_list
 
                             if debug:
                                 if len(lines[label]) > 0:
@@ -1253,7 +1253,8 @@ def compose_fg_bg(bg, fg_images_list, fg_boxes_list, inds):  # not good
             mask[up:(up + h), left:(left + w)] = 1
             mask1_im = Image.fromarray(mask1)
             draw1 = ImageDraw.Draw(mask1_im)
-            draw1.rectangle((left + fg_boxes_xmin, up + fg_boxes_ymin, left + fg_boxes_xmax, up + fg_boxes_ymax),
+            draw1.rectangle((left + fg_boxes_xmin, up + fg_boxes_ymin,
+                             left + fg_boxes_xmax, up + fg_boxes_ymax),
                             fill=255)
             mask1_im_blur = mask1_im.filter(ImageFilter.GaussianBlur(blur_radius))
             im.paste(Image.fromarray(fg), (0, 0), mask1_im_blur)
@@ -1320,7 +1321,7 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_root=None,
 
             bg_filename = bg_filenames[bg_ind]
             file_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
-            bg = cv2.imread(bg_filename)
+            bg = cv2.imread(bg_filename)  #RGB
 
             bg_shape = bg.shape[:2]
             if min(bg_shape) < 500 or max(bg_shape) > 2048:
@@ -1929,23 +1930,23 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
 
             offsets = compute_offsets(height=orig_height, width=orig_width, subsize=subsize, gap=256)
 
-            for oi, (xoffset, yoffset, sub_width, sub_height) in enumerate(offsets):  # left, up
+            for oi, (xoffset, yoffset, sub_w, sub_h) in enumerate(offsets):  # left, up
                 # sub_width = min(orig_width, big_subsize)
                 # sub_height = min(orig_height, big_subsize)
                 # if xoffset + sub_width > orig_width:
                 #     sub_width = orig_width - xoffset
                 # if yoffset + sub_height > orig_height:
                 #     sub_height = orig_height - yoffset
-                print(oi, len(offsets), xoffset, yoffset, sub_width, sub_height)
+                print(oi, len(offsets), xoffset, yoffset, sub_w, sub_h)
 
                 xoffset = max(1, xoffset)
                 yoffset = max(1, yoffset)
-                if xoffset + sub_width > orig_width - 1:
-                    sub_width = orig_width - 1 - xoffset
-                if yoffset + sub_height > orig_height - 1:
-                    sub_height = orig_height - 1 - yoffset
-                xoffset, yoffset, sub_width, sub_height = [int(val) for val in
-                                                           [xoffset, yoffset, sub_width, sub_height]]
+                if xoffset + sub_w > orig_width - 1:
+                    sub_w = orig_width - 1 - xoffset
+                if yoffset + sub_h > orig_height - 1:
+                    sub_h = orig_height - 1 - yoffset
+                xoffset, yoffset, sub_w, sub_h = [int(val) for val in
+                                                           [xoffset, yoffset, sub_w, sub_h]]
                 xmin1, ymin1 = xoffset, yoffset
                 xmax1, ymax1 = xoffset + sub_w, yoffset + sub_h
 
@@ -2013,7 +2014,7 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
 
                 # draw gt boxes
                 if len(sub_gt_boxes) > 0:
-                    save_prefix = '%d_%d_%d' % (ti, j, aug_time)
+                    save_prefix = '%d_%d_%d' % (ti, si, oi)
 
                     # save image
                     # for coco format
@@ -3675,6 +3676,43 @@ def get_args_parser():
     return parser
 
 
+def check_cached_fg(subset='train', aug_times=1, save_img=False, save_root=None,
+                         fg_images_filename=None, fg_boxes_filename=None,
+                         bg_images_dir=None):
+    save_root = '%s/%s/' % (save_root, subset)
+    if not os.path.exists(save_root):
+        os.makedirs(save_root)
+
+    save_img_path = '%s/images/' % save_root
+    save_img_shown_path = '%s/images_shown/' % save_root
+    save_txt_path = '%s/labels/' % save_root
+    for p in [save_img_path, save_txt_path, save_img_shown_path]:
+        if not os.path.exists(p):
+            os.makedirs(p)
+
+    print(fg_images_filename)
+    print(fg_boxes_filename)
+    print(bg_images_dir)
+    print('compose fg and bg to new train images ...')
+    fg_images_list = np.load(fg_images_filename, allow_pickle=True)  # list of RGB images [HxWx3]
+    fg_boxes_list = np.load(fg_boxes_filename, allow_pickle=True)  # list of boxes [nx5]
+    fg_inds = np.arange(len(fg_images_list))
+
+    for ind, (fg_image, fg_boxes) in enumerate(zip(fg_images_list, fg_boxes_list)):
+        print(ind)
+        print(fg_image.shape)
+        print(fg_boxes.shape)
+        # fg_image: HxWx3
+        # fg_boxes: n x 5, xmin, ymin, xmax, ymax, label
+        im = fg_image
+        for j, box in enumerate(fg_boxes):
+            print(box)
+            xmin, ymin, xmax, ymax, label = box.astype(np.int32)
+            cv2.rectangle(im, (xmin, ymin), (xmax, ymax), color=(255, 255, 255))
+            cv2.putText(im, str(label), ((xmin+xmax)//2, (ymin+ymax)//2), 1, 1, (0, 0, 255))
+        cv2.imwrite("%s/im-%d.png" %(save_img_shown_path, ind), im)
+
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser('gd augmentation', parents=[get_args_parser()])
@@ -3795,6 +3833,14 @@ if __name__ == '__main__':
 
     print('extract bg images ...')
     bg_images_dir = extract_bg_images(subset, cached_data_path, random_count, update_cache=update_cache)
+
+    if aug_type == 'check_cached_fg':
+        save_root = '%s/%s' % (save_root, aug_type)
+        check_cached_fg(subset=subset, aug_times=aug_times, save_root=save_root,
+                             fg_images_filename=fg_images_filename,
+                             fg_boxes_filename=fg_boxes_filename,
+                             bg_images_dir=bg_images_dir)
+        sys.exit(-1)
 
     print('doing augmentation ...')
     if aug_type == 'box_aug_v1':
