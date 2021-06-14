@@ -1510,7 +1510,7 @@ def add_line_to_image(im, crop_width=0, crop_height=0):
     # blur the image
     prob = np.random.rand()
     if prob < 0.5:
-        ksize = np.random.choice([3, 5, 7])
+        ksize = np.random.choice([3, 5, 7, 9])
         sigmas = np.arange(0.5, ksize, step=0.5)
         im_sub = cv2.GaussianBlur(im_sub, ksize=(ksize, ksize),
                                   sigmaX=np.random.choice(sigmas),
@@ -3669,8 +3669,8 @@ def get_args_parser():
     parser.add_argument('--random_count', default=1, type=int)
     parser.add_argument('--save_img', default=False, action='store_true')
     parser.add_argument('--do_rotate', default=False, action='store_true')
-    parser.add_argument('--crop_height', default=0, type=int)
-    parser.add_argument('--crop_width', default=0, type=int)
+    parser.add_argument('--crop_height', default=512, type=int)
+    parser.add_argument('--crop_width', default=512, type=int)
     parser.add_argument('--update_cache', default=False, action='store_true')
 
     return parser
