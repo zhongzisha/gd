@@ -21,7 +21,14 @@ python extract_image_patches2.py ^
 --source E:\train1_list.txt ^
 --subset train1 ^
 --pred_dir E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_1x_coco_lr0.001_newAug4_v2_new\outputs_train1_1024_32_epoch_6 ^
---save_root E:\ganta_patch_classification ^
+--save_root E:\ganta_patch_classification\ ^
+--gt_dir G:\gddata\aerial
+
+python extract_image_patches2.py ^
+--source E:\val1_list.txt ^
+--subset val1 ^
+--pred_dir E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_1x_coco_lr0.001_newAug4_v2_new\outputs_val1_1024_32_epoch_6 ^
+--save_root E:\ganta_patch_classification\ ^
 --gt_dir G:\gddata\aerial
 """
 
@@ -42,7 +49,7 @@ def main(args):
     subset = args.subset
     pred_dir = args.pred_dir
     gt_dir = args.gt_dir
-    save_root = args.save_root
+    save_root = os.path.join(args.save_root, subset)
 
     if not os.path.exists(save_root):
         os.makedirs(save_root)
@@ -119,19 +126,31 @@ def main(args):
         all_preds = torch.cat(tmp_preds)
         boxes, scores, labels = all_preds[:, :4], all_preds[:, 4], all_preds[:, 5] + 1
 
+        if len(boxes) == 0:
+            boxes = torch.empty((0, 4), dtype=torch.float32)
+            scores = torch.empty((0,), dtype=torch.float32)
+            labels = torch.empty((0,), dtype=torch.float32)
+
+
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename,
                                                     gdal_trans_info=geotransform,
                                                     valid_labels=[1,2,3,4])
-        gt_boxes = torch.from_numpy(gt_boxes)
-        gt_labels = torch.from_numpy(gt_labels)
-        gt_scores = torch.ones_like(gt_labels, dtype=scores.dtype)
 
+        if len(gt_boxes) > 0:
+            gt_boxes = torch.from_numpy(gt_boxes)
+            gt_labels = torch.from_numpy(gt_labels)
+            gt_scores = torch.ones_like(gt_labels, dtype=scores.dtype)
+        else:
+            continue
         print('number of boxes: ', len(boxes))
         print('number of gt boxes: ', len(gt_boxes))
 
         boxes = torch.cat([boxes, gt_boxes], dim=0)
         scores = torch.cat([scores, gt_scores], dim=0)
         labels = torch.cat([labels, gt_labels], dim=0)
+
+        if len(boxes) == 0:
+            continue
 
         assert len(boxes) == len(labels), 'check boxes'
         assert len(gt_boxes) == len(gt_labels), 'check gt_boxes'

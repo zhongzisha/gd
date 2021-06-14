@@ -1,3 +1,5 @@
+import argparse
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -208,15 +210,43 @@ def make_weights_for_balanced_classes(images, nclasses):
     return weight
 
 
+def get_args():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str, default='')
+    parser.add_argument("--train_subset", type=str, default='train')
+    parser.add_argument("--val_subset", type=str, default='val')
+    parser.add_argument("--save_root", type=str, default='')
+    parser.add_argument("--netname", type=str, default='resnet50')
+    parser.add_argument("--batchsize", type=int, default=64)
+    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--num_epochs", type=int, default=100)
+
+    return parser.parse_args()
+
+
+"""
+python train_resnet.py ^
+--data_dir E:\ganta_patch_classification ^
+--train_subset train1 ^
+--val_subset val1 ^
+--save_root E:\ganta_patch_cls_results ^
+--netname resnet50 ^
+--batchsize 8 ^
+--lr 0.001 ^
+--num_epochs 100
+"""
+
 if __name__ == '__main__':
-    import sys
+    args = get_args()
 
-    netname = sys.argv[1]
-    batchsize = int(sys.argv[2])
-    lr = float(sys.argv[3])
-    num_epochs = 100  # int(sys.argv[4])
+    data_dir = args.data_dir
+    netname = args.netname
+    batchsize = args.batchsize
+    lr = args.lr
+    num_epochs = args.num_epochs
 
-    save_root = 'E:/cls_results/%s/bs%d_lr%f_epochs%d' % (netname, batchsize, lr, num_epochs)
+    save_root = '%s/%s/bs%d_lr%f_epochs%d' % (args.save_root, netname, batchsize, lr, num_epochs)
     if not os.path.exists(save_root):
         os.makedirs(save_root)
 
@@ -241,9 +271,8 @@ if __name__ == '__main__':
         ]),
     }
 
-    data_dir = 'E:/patches'
-    image_datasets = {'train': datasets.ImageFolder(os.path.join(data_dir, 'train1'), data_transforms['train']),
-                      'val': datasets.ImageFolder(os.path.join(data_dir, 'val1'), data_transforms['val'])}
+    image_datasets = {'train': datasets.ImageFolder(os.path.join(data_dir, args.train_subset), data_transforms['train']),
+                      'val': datasets.ImageFolder(os.path.join(data_dir, args.val_subset), data_transforms['val'])}
 
     # weights = make_weights_for_balanced_classes(image_datasets['train'].imgs, len(image_datasets['train'].classes))
     # weights = torch.DoubleTensor(weights)
@@ -277,8 +306,8 @@ if __name__ == '__main__':
 
     model_ft = model_ft.to(device)
 
-    criterion = nn.CrossEntropyLoss(weight=torch.tensor([0.2, 0.8], device=device))
-    # criterion = nn.CrossEntropyLoss()
+    # criterion = nn.CrossEntropyLoss(weight=torch.tensor([0.2, 0.8], device=device))
+    criterion = nn.CrossEntropyLoss()
 
     # Observe that all parameters are being optimized
     optimizer_ft = optim.SGD(model_ft.parameters(), lr=lr, momentum=0.9)
