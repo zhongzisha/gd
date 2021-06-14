@@ -1,14 +1,14 @@
 import sys, os, glob
+import argparse
 
-sys.path.insert(0, 'F:/gd/yoloV5/')
+# sys.path.insert(0, 'F:/gd/yoloV5/')
 
 import cv2
 import numpy as np
 import torch
 from osgeo import gdal, osr
 from natsort import natsorted
-from myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms
-from utils.general import xyxy2xywh, xywh2xyxy, box_iou
+from myutils import py_cpu_nms, xyxy2xywh, xywh2xyxy, box_iou, load_gt_for_detection
 
 """
 从大图检测的结果，对于每个大图像a.tif都会保存a.tif, a.xml, a_all_preds.pt
@@ -16,48 +16,34 @@ from utils.general import xyxy2xywh, xywh2xyxy, box_iou
 a.xml是ENVI格式的ROI文件。
 """
 
-
-def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info):
-    print(gt_txt_filename)
-    print(gt_xml_filename)
-    # 加载gt，分两部分，一部分是txt格式的。一部分是esri xml格式的
-    gt_boxes1, gt_labels1 = load_gt_from_txt(gt_txt_filename)
-    gt_boxes2, gt_labels2 = load_gt_from_esri_xml(gt_xml_filename,
-                                                  gdal_trans_info=gdal_trans_info)
-    gt_boxes = gt_boxes1 + gt_boxes2
-    gt_labels = gt_labels1 + gt_labels2
-    all_boxes = np.concatenate([np.array(gt_boxes, dtype=np.float32).reshape(-1, 4),
-                                np.array(gt_labels, dtype=np.float32).reshape(-1, 1)], axis=1)
-    print('all_boxes')
-    print(all_boxes)
-
-    # 每个类进行nms
-    tmp_boxes = []
-    tmp_labels = []
-    for label in [1, 2]:
-        idx = np.where(all_boxes[:, 4] == label)[0]
-        if len(idx) > 0:
-            boxes_thisclass = all_boxes[idx, :4]
-            labels_thisclass = all_boxes[idx, 4]
-            dets = np.concatenate([boxes_thisclass.astype(np.float32),
-                                   0.99 * np.ones_like(idx, dtype=np.float32).reshape([-1, 1])], axis=1)
-            keep = py_cpu_nms(dets, thresh=0.5)
-            tmp_boxes.append(boxes_thisclass[keep])
-            tmp_labels.append(labels_thisclass[keep])
-    gt_boxes = np.concatenate(tmp_boxes)
-    gt_labels = np.concatenate(tmp_labels)
-
-    return gt_boxes, gt_labels
+"""
+python extract_image_patches2.py ^
+--source E:\train1_list.txt ^
+--subset train1 ^
+--pred_dir E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_1x_coco_lr0.001_newAug4_v2_new\outputs_train1_1024_32_epoch_6 ^
+--save_root E:\ganta_patch_classification ^
+--gt_dir G:\gddata\aerial
+"""
 
 
-def main(subset='train'):
-    source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
-    if subset == 'train':
-        pred_dir = 'E:/detect_outputs_yolov5x_640_train'
-    elif subset == 'val':
-        pred_dir = 'E:/detect_outputs_yolov5x_640_val_conf0.1'  # sys.argv[2]
-    gt_dir = 'E:/gd_gt'  # sys.argv[2]
-    save_root = 'E:/patches/%s' % (subset)
+def get_args():
+    parser = argparse.ArgumentParser();
+    parser.add_argument("--source", type=str, default='E:/train_list.txt')
+    parser.add_argument("--subset", type=str, default='train')
+    parser.add_argument("--pred_dir", type=str, default='')
+    parser.add_argument("--save_root", type=str, default='')
+    parser.add_argument("--gt_dir", type=str, default='')
+
+    return parser.parse_args()
+
+
+def main(args):
+    source = args.source
+    subset = args.subset
+    pred_dir = args.pred_dir
+    gt_dir = args.gt_dir
+    save_root = args.save_root
+
     if not os.path.exists(save_root):
         os.makedirs(save_root)
     for n in ['pos', 'neg']:
@@ -108,12 +94,12 @@ def main(subset='train'):
             continue
 
         gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
-        gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_new.xml')
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
 
         all_preds = torch.load(pred_filename).cpu()
         tmp_preds = []
         all_preds_cpu = all_preds.numpy()
-        for label in [0, 1]:
+        for label in [0, 1, 2, 3]:
             idx = np.where(all_preds_cpu[:, 5] == label)[0]
             if len(idx) > 0:
                 # if label == 0:
@@ -133,7 +119,9 @@ def main(subset='train'):
         all_preds = torch.cat(tmp_preds)
         boxes, scores, labels = all_preds[:, :4], all_preds[:, 4], all_preds[:, 5] + 1
 
-        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform)
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename,
+                                                    gdal_trans_info=geotransform,
+                                                    valid_labels=[1,2,3,4])
         gt_boxes = torch.from_numpy(gt_boxes)
         gt_labels = torch.from_numpy(gt_labels)
         gt_scores = torch.ones_like(gt_labels, dtype=scores.dtype)
@@ -163,7 +151,7 @@ def main(subset='train'):
 
             ims = []
             for j, (a, score, label) in enumerate(zip(b, scores, labels)):  # per item
-                if label == 1:
+                if label == 3:
 
                     # 在这里区分pos和neg，设定iou阈值，与gt的iou超过阈值认为正样本，反之负样本
                     if ious[j].max() > 0.1:
@@ -202,5 +190,5 @@ def main(subset='train'):
 
 
 if __name__ == '__main__':
-    # main(subset='train')
-    main(subset='val')
+    args = get_args()
+    main(args)

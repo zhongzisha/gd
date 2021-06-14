@@ -1046,26 +1046,26 @@ def compute_offsets(height, width, subsize, gap):
     return start_positions
 
 
-def load_gt(gt_xml_dir, gt_prefix, gt_subsize=5120, gt_gap=128):
-    xmlfiles = glob.glob(gt_xml_dir + '/{}*.xml'.format(gt_prefix))
-    all_boxes = []
-    all_labels = []
-
-    for xmlfile in xmlfiles:
-
-        boxes, labels = get_gt_boxes(xmlfile)
-        i, j = xmlfile.split(os.sep)[-1].replace('.xml', '').split('_')[1:3]
-        up, left = (int(float(i)) - 1) * (gt_subsize - gt_gap), (int(float(j)) - 1) * (gt_subsize - gt_gap)
-        if len(boxes) > 0:
-            boxes = np.array(boxes)
-            boxes[:, [0, 2]] += left
-            boxes[:, [1, 3]] += up
-            all_boxes.append(boxes)
-            all_labels += labels
-
-    all_boxes = np.concatenate(all_boxes)
-
-    return all_boxes, all_labels
+# def load_gt(gt_xml_dir, gt_prefix, gt_subsize=5120, gt_gap=128):
+#     xmlfiles = glob.glob(gt_xml_dir + '/{}*.xml'.format(gt_prefix))
+#     all_boxes = []
+#     all_labels = []
+#
+#     for xmlfile in xmlfiles:
+#
+#         boxes, labels = get_gt_boxes(xmlfile)
+#         i, j = xmlfile.split(os.sep)[-1].replace('.xml', '').split('_')[1:3]
+#         up, left = (int(float(i)) - 1) * (gt_subsize - gt_gap), (int(float(j)) - 1) * (gt_subsize - gt_gap)
+#         if len(boxes) > 0:
+#             boxes = np.array(boxes)
+#             boxes[:, [0, 2]] += left
+#             boxes[:, [1, 3]] += up
+#             all_boxes.append(boxes)
+#             all_labels += labels
+#
+#     all_boxes = np.concatenate(all_boxes)
+#
+#     return all_boxes, all_labels
 
 
 def load_gt_from_txt(filename):
@@ -1163,6 +1163,43 @@ def load_gt_polys_from_esri_xml(filename, gdal_trans_info, mapcoords2pixelcoords
             labels.append(int(float(label)))  # 0 is gan, 1 is jueyuanzi
 
     return polys, labels
+
+
+def load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info, valid_labels):
+    # print(gt_txt_filename)
+    # print(gt_xml_filename)
+    # 加载gt，分两部分，一部分是txt格式的。一部分是esri xml格式的
+    gt_boxes1, gt_labels1 = load_gt_from_txt(gt_txt_filename)
+    gt_boxes2, gt_labels2 = load_gt_from_esri_xml(gt_xml_filename,
+                                                  gdal_trans_info=gdal_trans_info)
+    gt_boxes = gt_boxes1 + gt_boxes2
+    gt_labels = gt_labels1 + gt_labels2
+
+    if len(gt_boxes) == 0:
+        return [], []
+
+    all_boxes = np.concatenate([np.array(gt_boxes, dtype=np.float32).reshape(-1, 4),
+                                np.array(gt_labels, dtype=np.float32).reshape(-1, 1)], axis=1)
+    # print('all_boxes')
+    # print(all_boxes)
+
+    # 每个类进行nms
+    tmp_boxes = []
+    tmp_labels = []
+    for label in valid_labels:
+        idx = np.where(all_boxes[:, 4] == label)[0]
+        if len(idx) > 0:
+            boxes_thisclass = all_boxes[idx, :4]
+            labels_thisclass = all_boxes[idx, 4]
+            dets = np.concatenate([boxes_thisclass.astype(np.float32),
+                                   0.99 * np.ones_like(idx, dtype=np.float32).reshape([-1, 1])], axis=1)
+            keep = py_cpu_nms(dets, thresh=0.5)
+            tmp_boxes.append(boxes_thisclass[keep])
+            tmp_labels.append(labels_thisclass[keep])
+    gt_boxes = np.concatenate(tmp_boxes)
+    gt_labels = np.concatenate(tmp_labels)
+
+    return gt_boxes, gt_labels
 
 
 def py_cpu_nms(dets, thresh):

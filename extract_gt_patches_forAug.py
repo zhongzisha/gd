@@ -7,7 +7,8 @@ import torch
 from osgeo import gdal, osr
 from natsort import natsorted
 from myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, box_iou_np, \
-    box_intersection_np, load_gt_polys_from_esri_xml, compute_offsets, alpha_map, elastic_transform_v2
+    box_intersection_np, load_gt_polys_from_esri_xml, compute_offsets, alpha_map, elastic_transform_v2, \
+    load_gt_for_detection
 import json
 import socket
 from PIL import Image, ImageDraw, ImageFilter
@@ -132,7 +133,7 @@ def extract_fg_images_bak(subset='train', save_root=None):
         gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
-        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
                                       valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
@@ -265,7 +266,7 @@ def extract_fg_images_bak2(subset='train', save_root=None, do_rotate=False,
         gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
-        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
                                       valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
@@ -401,7 +402,7 @@ def check_dataset(subset='train', save_root=None):
         gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
-        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
                                       valid_labels=valid_labels_set)
 
         if len(gt_boxes) > 0:
@@ -556,7 +557,7 @@ def check_fg_images_v1(subset='train', save_root=None):
         gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
-        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
                                       valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
@@ -866,7 +867,7 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
         gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
-        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
                                       valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
@@ -1034,7 +1035,7 @@ def extract_bg_images(subset='train', save_root=None, random_count=0, update_cac
             gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
             gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
 
-            gt_boxes, gt_boxes_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+            gt_boxes, gt_boxes_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
                                                 valid_labels=[1, 2, 3, 4])
 
             gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_LineRegion14.xml')
@@ -1440,7 +1441,7 @@ def add_line_to_image(im, crop_width=0, crop_height=0):
     # im_sub = im[(H//2-crop_height//2):(H//2-crop_height//2+crop_height),
     #          (W//2-crop_width//2):(W//2-crop_width//2+crop_width), :]
 
-    if crop_width == 0 or crop_height == 0:
+    if crop_width != 0 or crop_height != 0:
         xc = np.random.randint(low=(crop_width + 1) // 2, high=(W - (crop_width + 1) // 2 - 1))
         yc = np.random.randint(low=(crop_height + 1) // 2, high=(H - (crop_height + 1) // 2 - 1))
         im_sub = im[(yc - crop_height // 2):(yc - crop_height // 2 + crop_height),
@@ -1660,7 +1661,7 @@ def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
         gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
-        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
                                       valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
@@ -1920,7 +1921,7 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
         gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
         gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
 
-        gt_boxes, gt_labels = load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
                                       valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
