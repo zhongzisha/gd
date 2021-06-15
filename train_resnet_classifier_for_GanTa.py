@@ -11,6 +11,7 @@ import os
 import copy
 from sklearn.metrics import confusion_matrix    # 生成混淆矩阵函数
 from torchvision.datasets import VisionDataset
+from torch.utils.tensorboard import SummaryWriter
 
 from PIL import Image
 
@@ -463,6 +464,8 @@ def get_args():
     parser.add_argument("--batchsize", type=int, default=64)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--num_epochs", type=int, default=100)
+    parser.add_argument("--version", type=str, default='v0')
+    parser.add_argument("--loss_weights", type=str, default='')
 
     return parser.parse_args()
 
@@ -474,8 +477,15 @@ def train(args):
     batchsize = args.batchsize
     lr = args.lr
     num_epochs = args.num_epochs
+    version = args.version
+    loss_weights = None
+    if args.loss_weights != '':
+        loss_weights = eval(args.loss_weights)
+    print('loss_weights', loss_weights)
 
-    save_root = '%s/%s/bs%d_lr%f_epochs%d' % (args.save_root, netname, batchsize, lr, num_epochs)
+    save_root = '%s/%s/bs%d_lr%f_epochs%d_%s_lw%s' % \
+                (args.save_root, netname, batchsize, lr, num_epochs, version,
+                 '_'.join([str(v) for v in loss_weights]) if loss_weights is not None else '1.0')
     if not os.path.exists(save_root):
         os.makedirs(save_root)
 
@@ -535,8 +545,10 @@ def train(args):
 
     model_ft = model_ft.to(device)
 
-    # criterion = nn.CrossEntropyLoss(weight=torch.tensor([0.2, 0.8], device=device))
-    criterion = nn.CrossEntropyLoss()
+    if loss_weights is not None:
+        criterion = nn.CrossEntropyLoss(weight=torch.tensor(loss_weights, device=device))
+    else:
+        criterion = nn.CrossEntropyLoss()
 
     # Observe that all parameters are being optimized
     optimizer_ft = optim.SGD(model_ft.parameters(), lr=lr, momentum=0.9)
@@ -545,8 +557,107 @@ def train(args):
     # exp_lr_scheduler = lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
     exp_lr_scheduler = lr_scheduler.MultiStepLR(optimizer_ft, milestones=[70, 90], gamma=0.1)
 
-    model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler,
-                           num_epochs=num_epochs, save_root=save_root)
+    # model_ft = train_model(model_ft, criterion, optimizer_ft, exp_lr_scheduler,
+    #                        num_epochs=num_epochs, save_root=save_root)
+    since = time.time()
+
+    tb_dir = '%s/tb' % save_root
+    if os.path.exists(tb_dir):
+        shutil.rmtree(tb_dir, ignore_errors=True)
+    writer = SummaryWriter(tb_dir)
+
+    best_model_wts = copy.deepcopy(model_ft.state_dict())
+    best_acc = 0.0
+
+    for epoch in range(num_epochs):
+        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+        print('-' * 10)
+
+        # Each epoch has a training and validation phase
+        for phase in ['train', 'val']:
+            if phase == 'train':
+                model_ft.train()  # Set model to training mode
+            else:
+                model_ft.eval()  # Set model to evaluate mode
+
+            running_loss = 0.0
+            running_corrects = 0
+
+            # Iterate over data.
+            all_labels = []
+            all_preds = []
+            running_loss = 0.0
+            for step, (inputs, labels) in enumerate(dataloaders[phase]):
+
+                if step % 100 == 0:
+                    # show images
+                    img_grid = matplotlib_imshow(inputs, labels)
+                    # create grid of images
+                    img_grid = torchvision.utils.make_grid(img_grid)
+                    # write to tensorboard
+                    writer.add_image('%s/images' % phase, img_grid, global_step=epoch * len(dataloaders[phase]) + step)
+
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                all_labels.append(labels)
+
+                # zero the parameter gradients
+                optimizer_ft.zero_grad()
+
+                # forward
+                # track history if only in train
+                with torch.set_grad_enabled(phase == 'train'):
+                    outputs = model_ft(inputs)
+                    _, preds = torch.max(outputs, 1)
+                    all_preds.append(preds)
+                    loss = criterion(outputs, labels)
+
+                    # backward + optimize only if in training phase
+                    if phase == 'train':
+                        loss.backward()
+                        optimizer_ft.step()
+
+                # statistics
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels.data)
+            if phase == 'train':
+                exp_lr_scheduler.step()
+
+            all_labels = torch.cat(all_labels).cpu().numpy()
+            all_preds = torch.cat(all_preds).cpu().numpy()
+            cm = confusion_matrix(all_labels, all_preds)
+            print(phase, cm)
+
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_corrects.double() / dataset_sizes[phase]
+
+            print('{} Loss: {:.4f} Acc: {:.4f}'.format(
+                phase, epoch_loss, epoch_acc))
+
+            # deep copy the model
+            if phase == 'val' and epoch_acc > best_acc:
+                best_acc = epoch_acc
+                best_model_wts = copy.deepcopy(model_ft.state_dict())
+                torch.save(model_ft.state_dict(), '%s/best.pt' % save_root)
+
+            # ...log the running loss
+            writer.add_scalar('%s_loss' % phase,
+                              epoch_loss,
+                              epoch * len(dataloaders[phase]))
+
+        print()
+
+        # import pdb
+        # pdb.set_trace()
+        torch.save(model_ft.state_dict(), '%s/epoch-%d.pt' % (save_root, epoch))
+
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(
+        time_elapsed // 60, time_elapsed % 60))
+    print('Best val Acc: {:4f}'.format(best_acc))
+
+    # load best model weights
+    model_ft.load_state_dict(best_model_wts)
 
     visualize_model(model_ft)
 
@@ -564,8 +675,14 @@ def test(args):
     lr = args.lr
     num_epochs = args.num_epochs
     subset_prefix = args.test_subset
+    version = args.version
+    loss_weights = None
+    if args.loss_weights != '':
+        loss_weights = eval(args.loss_weights)
 
-    save_root = '%s/%s/bs%d_lr%f_epochs%d' % (args.save_root, netname, batchsize, lr, num_epochs)
+    save_root = '%s/%s/bs%d_lr%f_epochs%d_%s_lw%s' % \
+                (args.save_root, netname, batchsize, lr, num_epochs, version,
+                 '_'.join([str(v) for v in loss_weights]) if loss_weights is not None else '1.0')
     if not os.path.exists(save_root):
         os.makedirs(save_root)
 
