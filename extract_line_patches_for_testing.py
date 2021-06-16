@@ -63,7 +63,7 @@ def load_gt(gt_txt_filename, gt_xml_filename, gdal_trans_info):
 
 def main(subset='train'):
     source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
-    gt_dir = 'F:/gddata/aerial'    # *_gt_5.xml保存在这个目录下了
+    gt_dir = 'G:/gddata/aerial'    # *_gt_5.xml保存在这个目录下了
     save_root = 'E:/line_patches512_for_testing/%s' % (subset)
     if not os.path.exists(save_root):
         os.makedirs(save_root + "/test/images")
@@ -490,8 +490,8 @@ def main_enlarge2times(subset='train'):
 
 if __name__ == '__main__':
     subset = sys.argv[1]
-    # main(subset=subset)
-    main_enlarge2times(subset=subset)
+    main(subset=subset)
+    # main_enlarge2times(subset=subset)
 
 
 
