@@ -20,16 +20,34 @@ a.xml是ENVI格式的ROI文件。
 python det_results_analysis.py ^
 --source E:\train1_list.txt ^
 --subset train1 ^
---pred_dir E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_1x_coco_lr0.001_newAug4_v2_new\outputs_train1_1024_32_epoch_6_withCls ^
+--pred_dir E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_1x_coco_lr0.001_newAug4_v2_new\outputs_train1_1024_32_epoch_6 ^
 --save_root E:\ganta_patch_classification\ ^
---gt_dir G:\gddata\aerial
+--gt_dir G:\gddata\aerial ^
+--save_postfix ''
 
 python det_results_analysis.py ^
 --source E:\val1_list.txt ^
 --subset val1 ^
 --pred_dir E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_1x_coco_lr0.001_newAug4_v2_new\outputs_val1_1024_32_epoch_6 ^
 --save_root E:\ganta_patch_classification\ ^
---gt_dir G:\gddata\aerial
+--gt_dir G:\gddata\aerial ^
+--save_postfix ''
+
+python det_results_analysis.py ^
+--source E:\train1_list.txt ^
+--subset train1 ^
+--pred_dir E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_1x_coco_lr0.001_newAug4_v2_new\outputs_train1_1024_32_epoch_6_withCls ^
+--save_root E:\ganta_patch_classification\ ^
+--gt_dir G:\gddata\aerial ^
+--save_postfix '_withCls'
+
+python det_results_analysis.py ^
+--source E:\val1_list.txt ^
+--subset val1 ^
+--pred_dir E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_1x_coco_lr0.001_newAug4_v2_new\outputs_val1_1024_32_epoch_6_withCls ^
+--save_root E:\ganta_patch_classification\ ^
+--gt_dir G:\gddata\aerial ^
+--save_postfix '_withCls'
 """
 
 
@@ -40,6 +58,7 @@ def get_args():
     parser.add_argument("--pred_dir", type=str, default='')
     parser.add_argument("--save_root", type=str, default='')
     parser.add_argument("--gt_dir", type=str, default='')
+    parser.add_argument("--save_postfix", type=str, default='')
 
     return parser.parse_args()
 
@@ -50,6 +69,7 @@ def main(args):
     pred_dir = args.pred_dir
     gt_dir = args.gt_dir
     save_root = os.path.join(args.save_root, subset)
+    save_postfix = args.save_postfix.replace('\'', '')
 
     if not os.path.exists(save_root):
         os.makedirs(save_root)
@@ -147,13 +167,13 @@ def main(args):
 
         tp = 0
         for j, (box, score, label) in enumerate(zip(boxes, scores, labels)):  # per item
-            if ious[j].max() > 0.1:  # 只统计杆塔
+            if ious[j].max() > 0:  # 只统计杆塔
                 tp += 1
 
         lines.append("%s,%d,%d,%d\n"%(file_prefix, len(gt_boxes), len(boxes), tp))
 
     if len(lines) > 0:
-        with open(save_root + '/%s_result_analysis.csv' % subset, 'w') as f:
+        with open(save_root + '/%s_result_analysis%s.csv' % (subset, save_postfix), 'w') as f:
             f.writelines(lines)
 
 
