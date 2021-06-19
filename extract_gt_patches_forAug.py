@@ -338,7 +338,7 @@ def extract_fg_images_bak2(subset='train', save_root=None, do_rotate=False,
 def check_dataset(subset='train', save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -482,7 +482,7 @@ def check_dataset(subset='train', save_root=None):
 def check_fg_images_v1(subset='train', save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -789,7 +789,7 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
 def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_cache=False, debug=False):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -976,7 +976,7 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
 def extract_bg_images(subset='train', save_root=None, random_count=0, update_cache=False):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -1587,7 +1587,7 @@ def refine_line_aug(subset='train', aug_times=1, save_root=None,
 def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -1840,7 +1840,7 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
 
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -2033,6 +2033,8 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
 
                     if np.random.rand() > 0.5:
                         save_img = True
+                    else:
+                        save_img = False
 
                     valid_lines = []
                     for box2 in sub_gt_boxes:
@@ -3256,7 +3258,7 @@ def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
                   gt_postfixes=None, gt_name=None, random_count=1000):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -3463,7 +3465,7 @@ def aug_mc_seg_v6(subset='train', aug_times=1, save_img=False, save_root=None,
 def aug_mc_seg_v7(subset='train', aug_times=1, save_img=False, save_root=None):
     hostname = socket.gethostname()
     if hostname == 'master':
-        source = '/media/ubuntu/Temp/%s_list.txt' % (subset)
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
         gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
@@ -3753,7 +3755,7 @@ if __name__ == '__main__':
         gt_name = '4classes'
 
         if hostname == 'master':
-            save_root = '/media/ubuntu/Temp/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
+            save_root = '/media/ubuntu/Data/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
         else:
             save_root = 'E:/gd_mc_seg_Aug%d/%s_%s/' % (aug_times, aug_type, gt_name)
 
@@ -3788,7 +3790,7 @@ if __name__ == '__main__':
 
     # for detection aug
     if hostname == 'master':
-        save_root = '/media/ubuntu/Temp/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
+        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
     else:
         save_root = 'E:/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
 
