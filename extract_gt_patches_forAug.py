@@ -695,6 +695,10 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
     H, W = image.shape[:2]
     pad_width = int(2 * xc + 1 - W)
     pad_height = int(2 * yc + 1 - H)
+
+    if pad_width < 0 or pad_height < 0:
+        return [], []
+
     image = np.pad(image, ((0, pad_height), (0, pad_width), (0, 0)))
 
     w1 = w * 1.1 + 16
@@ -725,7 +729,7 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
 
     ims_list = []
     gt_boxes_list = []
-    for degree in range(5, 360, 5):
+    for degree in range(10, 360, 10):
         seq = iaa.Sequential([
             iaa.Affine(rotate=degree, fit_output=False)
         ])
@@ -874,7 +878,7 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
             continue
 
         for j, (box, label) in enumerate(zip(gt_boxes, gt_labels)):  # per item
-            if label <= 3:  # 1, 2, 3
+            if label == 3:  # 1, 2, 3
                 xmin0, ymin0, xmax0, ymax0 = box
                 width0, height0 = xmax0 - xmin0, ymax0 - ymin0
                 if width0 > 800 or height0 > 800 or width0 < 10 or height0 < 10:

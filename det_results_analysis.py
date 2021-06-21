@@ -34,6 +34,14 @@ python det_results_analysis.py ^
 --save_postfix ''
 
 python det_results_analysis.py ^
+--source E:\val1_list.txt ^
+--subset val1 ^
+--pred_dir E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_2x_coco_lr0.001_newAug4_v2_new_v2_onlyAug3\outputs_val1_1024_32_epoch_20 ^
+--save_root E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_2x_coco_lr0.001_newAug4_v2_new_v2_onlyAug3\outputs_val1_1024_32_epoch_20 ^
+--gt_dir G:\gddata\aerial ^
+--save_postfix ''
+
+python det_results_analysis.py ^
 --source E:\train1_list.txt ^
 --subset train1 ^
 --pred_dir E:\mmdetection\work_dirs\faster_rcnn_r50_fpn_dc5_1x_coco_lr0.001_newAug4_v2_new\outputs_train1_1024_32_epoch_6_withCls ^
