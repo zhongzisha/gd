@@ -710,12 +710,14 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
     ymin1 = int(max(1, ymin1))
     ymax1 = int(min(H-1, ymax1))
     points = []
+    labels = []
     for box in boxes:
         xmin, ymin, xmax, ymax, label = box
         points.append(Keypoint(x=xmin, y=ymin))
         points.append(Keypoint(x=xmax, y=ymin))
         points.append(Keypoint(x=xmax, y=ymax))
         points.append(Keypoint(x=xmin, y=ymax))
+        labels.append(label)
     kps = KeypointsOnImage(points, shape=image.shape)
 
     if False:
@@ -729,7 +731,7 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
 
     ims_list = []
     gt_boxes_list = []
-    for degree in range(10, 360, 10):
+    for degree in range(30, 360, 30):
         seq = iaa.Sequential([
             iaa.Affine(rotate=degree, fit_output=False)
         ])
@@ -774,7 +776,10 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
                 ymin1_new = max(ymin2 - ymin1, 1)
                 xmax1_new = min(xmax2 - xmin1, xmax1 - xmin1 - 1)
                 ymax1_new = min(ymax2 - ymin1, ymax1 - ymin1 - 1)
-                valid_boxes.append([xmin1_new, ymin1_new, xmax1_new, ymax1_new, boxes[qi, 4]])
+                if boxes[qi, 4] == 3 and (xmax1_new - xmin1_new) > 50 and (ymax1_new - ymin1_new) > 50:
+                    valid_boxes.append([xmin1_new, ymin1_new, xmax1_new, ymax1_new, boxes[qi, 4]])
+                elif boxes[qi, 4] == 4:
+                    valid_boxes.append([xmin1_new, ymin1_new, xmax1_new, ymax1_new, boxes[qi, 4]])
         if len(valid_boxes) > 0:
             ims_list.append(image_aug[ymin1:ymax1, xmin1:xmax1, :])
             gt_boxes_list.append(np.array(valid_boxes).reshape((-1, 5)))
@@ -824,7 +829,7 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
         tiffiles = natsorted(glob.glob(source + '/*.tif'))
     print(tiffiles)
 
-    cache_label_list = [1, 2, 3]
+    cache_label_list = [3]  # [1, 2, 3]
     cache_patches_list = []  # save the extracted gt_img_patches
     cache_boxes_list = []  # save the gt_boxes with the patch
 
@@ -927,7 +932,7 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
                             # record its position, to put it to zero in the image
                             area1 = (xmax1 - xmin1) * (ymax1 - ymin1)
                             area = (xmax - xmin) * (ymax - ymin)
-                            if area1 >= 0.6 * area:
+                            if label1 >= 3 and area1 >= 0.6 * area:
                                 tmp_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
 
                     if len(tmp_boxes) > 0:
@@ -1855,7 +1860,8 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
         os.makedirs(save_dir)
 
     aug_times = aug_times if 'train' in subset else 1
-    valid_labels_set = [1, 2, 3, 4]
+    # valid_labels_set = [1, 2, 3, 4]
+    valid_labels_set = [3, 4]
 
     save_img_path = '%s/images/' % save_dir
     save_img_shown_path = '%s/images_shown/' % save_dir
@@ -1890,8 +1896,8 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
     size0 = 10000
     size1 = -1
 
-    subsizes = [1024]
-    scales = [1.0]
+    subsizes = [600,800,1024]
+    scales = [1.0, 1.0,1.0]
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
