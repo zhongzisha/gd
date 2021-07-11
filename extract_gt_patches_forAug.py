@@ -2151,7 +2151,7 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
     size0 = 10000
     size1 = -1
 
-    subsizes = [1024]
+    subsizes = [640]   # [1024]
     scales = [1.0]
 
     for ti in range(len(tiffiles)):
