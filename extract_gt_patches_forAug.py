@@ -2151,8 +2151,9 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
     size0 = 10000
     size1 = -1
 
-    subsizes = [640]   # [1024]
+    subsizes = [512]   # [1024]
     scales = [1.0]
+    gap = 0 if 'train' in subset else 0
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -2194,7 +2195,7 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
 
         for si, (subsize, scale) in enumerate(zip(subsizes, scales)):
 
-            offsets = compute_offsets(height=orig_height, width=orig_width, subsize=subsize, gap=256)
+            offsets = compute_offsets(height=orig_height, width=orig_width, subsize=subsize, gap=gap)
 
             for oi, (xoffset, yoffset, sub_w, sub_h) in enumerate(offsets):  # left, up
                 # sub_width = min(orig_width, big_subsize)
@@ -2348,7 +2349,7 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
                     if len(np.where(cutout[:, :, 0] > 0)[0]) < 0.5 * np.prod(cutout.shape[:2]):
                         continue
 
-                    if np.random.rand() < 0.1:
+                    if np.random.rand() < 0.01:
                         # for yolo format
                         save_prefix = save_prefix + '_noGT'
                         cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
@@ -4500,6 +4501,7 @@ def get_args_parser():
     parser.add_argument('--cached_data_path', default='', type=str)
     parser.add_argument('--subset', default='train', type=str)
     parser.add_argument('--aug_type', default='', type=str)
+    parser.add_argument('--postfix', default='', type=str)
     parser.add_argument('--aug_times', default=1, type=int)
     parser.add_argument('--random_count', default=1, type=int)
     parser.add_argument('--save_img', default=False, action='store_true')
@@ -4619,7 +4621,6 @@ if __name__ == '__main__':
             aug_mc_seg_v7(subset=subset, aug_times=aug_times, save_img=save_img, save_root=save_root)
             sys.exit(-1)
 
-
     # for detection aug
     if hostname == 'master':
         save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
@@ -4716,7 +4717,7 @@ if __name__ == '__main__':
         save_root = '%s/%s' % (save_root, aug_type)
         box_aug_v3(subset=subset, aug_times=aug_times, save_root=save_root)
     elif aug_type == 'box_aug_v4':
-        save_root = '%s/%s' % (save_root, aug_type)
+        save_root = '%s/%s%s' % (save_root, aug_type, args.postfix)
         box_aug_v4(subset=subset, aug_times=aug_times, save_root=save_root)
     elif aug_type == 'box_aug_v5':
         save_root = '%s/%s' % (save_root, aug_type)
