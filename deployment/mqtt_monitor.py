@@ -19,6 +19,6 @@ def on_message(client, userdata, msg):
 client = mqtt.Client("mqtt client for monitor")
 client.on_connect = on_connect
 client.on_message = on_message
-client.connect("10.0.7.65", 21883, 60)
+client.connect("10.0.7.184", 21883, 60)
 
 client.loop_forever()

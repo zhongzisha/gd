@@ -2151,9 +2151,9 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
     size0 = 10000
     size1 = -1
 
-    subsizes = [512]   # [1024]
-    scales = [1.0]
-    gap = 0 if 'train' in subset else 0
+    subsizes = [640,800,1024] if 'train' in subset else [800]   # [1024]
+    scales = [1.0,1.0,1.0] if 'train' in subset else [1.0]
+    gap = 256 if 'train' in subset else 32
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -2349,7 +2349,7 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
                     if len(np.where(cutout[:, :, 0] > 0)[0]) < 0.5 * np.prod(cutout.shape[:2]):
                         continue
 
-                    if np.random.rand() < 0.01:
+                    if np.random.rand() < 0.001:
                         # for yolo format
                         save_prefix = save_prefix + '_noGT'
                         cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
@@ -4637,45 +4637,46 @@ if __name__ == '__main__':
         check_dataset(subset=subset, save_root=save_root)
         sys.exit(-1)
 
-    """
-    cached_data_path/train_fg_images.npy
-    cached_data_path/train_fg_boxes.npy
-    cached_data_path/val_fg_images.npy
-    cached_data_path/val_fg_boxes.npy
-    cached_data_path/train_bg_images/
-    cached_data_path/val_bg_images/
-    """
-    print('extract fg images ...')
-    # save_dir = 'E:/fg_images_shown/'
-    # if not os.path.exists(save_dir):
-    #     os.makedirs(save_dir)
-    fg_images_filename, fg_boxes_filename = extract_fg_images(subset, cached_data_path,
-                                                              do_rotate=do_rotate,
-                                                              update_cache=update_cache,
-                                                              debug=False)
-
-    # sys.exit(-1)
-
     if False:
-        save_dir = '/media/ubuntu/Data/fg_images_shown/%s' %subset
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        fg_images_list = np.load(fg_images_filename, allow_pickle=True)  # list of RGB images [HxWx3]
-        fg_boxes_list = np.load(fg_boxes_filename, allow_pickle=True)  # list of boxes [nx5]
-        for fi, (img, boxes) in enumerate(zip(fg_images_list, fg_boxes_list)):
-            for bi, box in enumerate(boxes.astype(np.int32)):
-                x1, y1, x2, y2, label = box
-                # cv2.rectangle(img, (x1, y1), (x2, y2), color=(255, 255, 0), thickness=2)
-                # cv2.putText(img, str(label), (x1, y1), fontFace=1, fontScale=1, color=(0, 255, 255), thickness=1)
-                if label == 3:
-                    im = img[y1:y2, x1:x2, ::-1]
-                    im = cv2.resize(im, (64, 64))
-                    cv2.imwrite('%s/%d_%d.jpg'%(save_dir, fi, bi), im)
-            # pass
-    # sys.exit(-1)
+        """
+        cached_data_path/train_fg_images.npy
+        cached_data_path/train_fg_boxes.npy
+        cached_data_path/val_fg_images.npy
+        cached_data_path/val_fg_boxes.npy
+        cached_data_path/train_bg_images/
+        cached_data_path/val_bg_images/
+        """
+        print('extract fg images ...')
+        # save_dir = 'E:/fg_images_shown/'
+        # if not os.path.exists(save_dir):
+        #     os.makedirs(save_dir)
+        fg_images_filename, fg_boxes_filename = extract_fg_images(subset, cached_data_path,
+                                                                  do_rotate=do_rotate,
+                                                                  update_cache=update_cache,
+                                                                  debug=False)
 
-    print('extract bg images ...')
-    bg_images_dir = extract_bg_images(subset, cached_data_path, random_count, update_cache=update_cache)
+        # sys.exit(-1)
+
+        if False:
+            save_dir = '/media/ubuntu/Data/fg_images_shown/%s' %subset
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            fg_images_list = np.load(fg_images_filename, allow_pickle=True)  # list of RGB images [HxWx3]
+            fg_boxes_list = np.load(fg_boxes_filename, allow_pickle=True)  # list of boxes [nx5]
+            for fi, (img, boxes) in enumerate(zip(fg_images_list, fg_boxes_list)):
+                for bi, box in enumerate(boxes.astype(np.int32)):
+                    x1, y1, x2, y2, label = box
+                    # cv2.rectangle(img, (x1, y1), (x2, y2), color=(255, 255, 0), thickness=2)
+                    # cv2.putText(img, str(label), (x1, y1), fontFace=1, fontScale=1, color=(0, 255, 255), thickness=1)
+                    if label == 3:
+                        im = img[y1:y2, x1:x2, ::-1]
+                        im = cv2.resize(im, (64, 64))
+                        cv2.imwrite('%s/%d_%d.jpg'%(save_dir, fi, bi), im)
+                # pass
+        # sys.exit(-1)
+
+        print('extract bg images ...')
+        bg_images_dir = extract_bg_images(subset, cached_data_path, random_count, update_cache=update_cache)
 
     if aug_type == 'check_cached_fg':
         save_root = '%s/%s' % (save_root, aug_type)

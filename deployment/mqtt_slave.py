@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import numpy as np
 from sklearn.cluster import DBSCAN
 import torch
@@ -27,7 +27,7 @@ class Worker:
 
         if torch.cuda.is_available() and torch.cuda.device_count() > 0:
             self.device = "cuda:0"
-            self.batchsize = 32
+            self.batchsize = 16
         else:
             self.device = "cpu"
             self.batchsize = 64
@@ -370,6 +370,6 @@ mqtt_client = mqtt.Client("mqtt client")
 
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
-mqtt_client.connect("10.0.7.65", 21883, 60)
+mqtt_client.connect("10.0.7.184", 21883, 60)
 
 mqtt_client.loop_forever()
