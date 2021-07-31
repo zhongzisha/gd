@@ -469,6 +469,120 @@ def convert_envi_xml_to_one_shapefile():
         # break
 
 
+def convert_envi_xml_to_one_shapefile_with_multiple_layers():   # wrong, shapefile only has one layer
+
+    input_filenames = glob.glob(os.path.join(src_dir, '*.tif'))
+
+    label_maps = {
+        3: 'tower',
+        4: 'insulator',
+        5: 'line_box',
+        6: 'water',
+        7: 'building',
+        8: 'tree',
+        9: 'road',
+        10: 'landslide',
+        14: 'line_region'
+    }
+    label_postfixes = ['_gt_5', '_gt_water6', '_gt_building7',
+                       '_gt_tree8', '_gt_road9', '_gt_landslide10',
+                       '_gt_LineRegion14']
+
+    outDriver = ogr.GetDriverByName('ESRI Shapefile')
+    for filename in input_filenames:
+        file_prefix = filename.split(os.sep)[-1].replace('.tif', '')
+        if 'Original' in file_prefix:
+            continue
+
+        ds = gdal.Open(filename, gdal.GA_ReadOnly)
+
+        gdal_trans_info = ds.GetGeoTransform()
+        gdal_projection = ds.GetProjection()
+        gdal_projection_sr = osr.SpatialReference(wkt=gdal_projection)
+
+        ds = None
+
+        # change xml filename
+        all_polys = []
+        all_labels = []
+        for xml_postfix in label_postfixes:
+            xml_filename = os.path.join(src_dir, file_prefix + xml_postfix + '.xml')
+            if not os.path.exists(xml_filename):
+                continue
+            print(xml_filename)
+            DomTree = xml.dom.minidom.parse(xml_filename)
+            annotation = DomTree.documentElement
+            regionlist = annotation.getElementsByTagName('Region')
+            polys = []
+            labels = []
+            xOrigin = gdal_trans_info[0]
+            yOrigin = gdal_trans_info[3]
+            pixelWidth = gdal_trans_info[1]
+            pixelHeight = gdal_trans_info[5]
+
+            for region in regionlist:
+                name = region.getAttribute("name")
+                label = name.split('_')[0]
+                polylist = region.getElementsByTagName('Coordinates')
+                for poly in polylist:
+                    coords_str = poly.childNodes[0].data
+                    coords = [float(val) for val in coords_str.strip().split(' ')]
+                    points = np.array(coords).reshape([-1, 2])  # nx2
+                    # if mapcoords2pixelcoords:    # geo coordinates to pixel coordinates
+                    #     points[:, 0] -= xOrigin
+                    #     points[:, 1] -= yOrigin
+                    #     points[:, 0] /= pixelWidth
+                    #     points[:, 1] /= pixelHeight
+                    #     points += 0.5
+                    #     points = points.astype(np.int32)
+
+                    polys.append(points)
+                    labels.append(int(float(label)))
+
+            # print(polys, labels)
+            all_polys += polys
+            all_labels += labels
+
+        shp_filename = os.path.join(dst_dir, file_prefix + '_gt_multi_layers.shp')
+        outDataSource = outDriver.CreateDataSource(shp_filename)
+        if len(all_labels) > 0:
+            all_labels = np.array(all_labels)
+            for label in np.unique(all_labels):
+                if label not in label_maps.keys():
+                    continue
+                inds = np.where(all_labels == label)[0]
+                label_name = label_maps[label]
+                print(label, label_name, len(inds))
+
+                outLayer = outDataSource.CreateLayer(label_name, gdal_projection_sr, geom_type=ogr.wkbPolygon)
+                featureDefn = outLayer.GetLayerDefn()
+                newField = ogr.FieldDefn("Class", ogr.OFTString)
+                outLayer.CreateField(newField)
+
+                for ind in inds:
+                    coords = all_polys[ind]
+
+                    ring = ogr.Geometry(ogr.wkbLinearRing)
+                    for xx, yy in coords:
+                        ring.AddPoint(xx, yy)
+                    poly = ogr.Geometry(ogr.wkbPolygon)
+                    poly.AddGeometry(ring)
+
+                    # add new geom to layer
+                    outFeature = ogr.Feature(featureDefn)
+                    outFeature.SetGeometry(poly)
+                    outFeature.SetField("Class", label_name)
+                    outLayer.CreateFeature(outFeature)
+                    outFeature.Destroy()
+
+                featureDefn = None
+                outLayer = None
+        outDataSource.Destroy()
+        outDataSource = None
+
+        # break
+
+
 def convert_envi_xml_to_seperate_shapefile():
 
     input_filenames = glob.glob(os.path.join(src_dir, '*.tif'))
@@ -576,6 +690,40 @@ def convert_envi_xml_to_seperate_shapefile():
         # break
 
 
+def test_shp_reading():
+
+    driver = ogr.GetDriverByName("ESRI Shapefile")
+    shp_dirs = r'E:\gddata_processed'
+    shp_files = glob.glob(os.path.join(shp_dirs, '*.shp'))
+    for shp_filename in shp_files:
+        file_prefix = shp_filename.split(os.sep)[-1].replace('.shp','')
+        ds = driver.Open(shp_filename, update=0)
+        layerCount = ds.GetLayerCount()
+        print(file_prefix, layerCount)
+
+        layer = ds.GetLayer(0)
+        layerDef = layer.GetLayerDefn()
+        for i in range(layerDef.GetFieldCount()):
+            fieldDef = layerDef.GetFieldDefn(i)
+            fieldName = fieldDef.GetName()
+            fieldTypeCode = fieldDef.GetType()
+            fieldType = fieldDef.GetFieldTypeName(fieldTypeCode)
+            fieldWidth = fieldDef.GetWidth()
+            fieldPrecision = fieldDef.GetPrecision()
+
+            print(i, fieldName, fieldType, fieldWidth, fieldPrecision)
+
+        for feat in layer:
+            geom = feat.GetGeometryRef()
+            print(geom.ExportToWkt())
+            for i in range(layerDef.GetFieldCount()):
+                print(feat.GetField(i))
+
+        ds = None
+
+    driver = None
+
+
 if __name__ == '__main__':
 
     # get_all_metadata()
@@ -589,7 +737,14 @@ if __name__ == '__main__':
 
     # convert_envi_xml_to_one_shapefile()
 
-    convert_envi_xml_to_seperate_shapefile()
+    # convert_envi_xml_to_seperate_shapefile()
+
+    test_shp_reading()
+
+    # convert_envi_xml_to_one_shapefile_with_multiple_layers()
+
+
+
 
 
 
