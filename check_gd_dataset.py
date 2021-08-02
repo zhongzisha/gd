@@ -724,6 +724,102 @@ def test_shp_reading():
     driver = None
 
 
+def extract_fg_images_from_resampled_images():
+    labels_to_names = {
+        3: 'tower',
+        4: 'insulator',
+        5: 'line_box',
+        6: 'water',
+        7: 'building',
+        8: 'tree',
+        9: 'road',
+        10: 'landslide',
+        14: 'line_region'
+    }
+
+    names_to_labels = {v:k for k, v in labels_to_names.items()}
+
+    # 这里发现一个很有趣的现象，把tif图片文件重采样之后，还能用同一个shapefile提取里面的标注信息
+    tif_filenames = [
+        "E:\\gddata_resampled\\110kv江桂线N41-N42（含杆塔、导线、绝缘子、树木）_0.1.tif",
+        "E:\\gddata_resampled\\110kv江桂线N41-N42（含杆塔、导线、绝缘子、树木）_0.2.tif",
+        "E:\\gddata_resampled\\110kv江桂线N41-N42（含杆塔、导线、绝缘子、树木）_0.3.tif"
+    ]
+    shp_filename = "E:\\gddata_processed\\110kv江桂线N41-N42（含杆塔、导线、绝缘子、树木）_gt_tower.shp"
+
+    for tif_filename in tif_filenames:
+        file_prefix = tif_filename.split(os.sep)[-1].replace('.tif', '')
+        save_dir = os.path.join('E:\\gddata_resampled', file_prefix)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
+        ds = gdal.Open(tif_filename, gdal.GA_ReadOnly)
+
+        gdal_trans_info = ds.GetGeoTransform()
+        projection = ds.GetProjection()
+
+        xOrigin = gdal_trans_info[0]
+        yOrigin = gdal_trans_info[3]
+        pixelWidth = gdal_trans_info[1]
+        pixelHeight = gdal_trans_info[5]
+
+        shp_driver = ogr.GetDriverByName("ESRI Shapefile")
+
+        shp_ds = shp_driver.Open(shp_filename, update=0)
+        layerCount = shp_ds.GetLayerCount()
+
+        layer = shp_ds.GetLayer(0)
+        layerDef = layer.GetLayerDefn()
+        for i in range(layerDef.GetFieldCount()):
+            fieldDef = layerDef.GetFieldDefn(i)
+            fieldName = fieldDef.GetName()
+            fieldTypeCode = fieldDef.GetType()
+            fieldType = fieldDef.GetFieldTypeName(fieldTypeCode)
+            fieldWidth = fieldDef.GetWidth()
+            fieldPrecision = fieldDef.GetPrecision()
+
+            print(i, fieldName, fieldType, fieldWidth, fieldPrecision)
+
+        for i, feat in enumerate(layer):
+            geom = feat.GetGeometryRef()
+            label = names_to_labels[feat.GetField(0)]
+            if label == 3:
+                wkt_str = geom.ExportToWkt()
+                start = wkt_str.find("((") + 2
+                end = wkt_str.find("))")
+                points = []
+                for point in wkt_str[start:end].split(','):
+                    x, y = point.split(' ')
+                    points += [float(x), float(y)]
+                xmin, ymin, xmax, ymax = points[0], points[1], points[4], points[5]
+
+                # !!! 这里用的是tif文件的信息。
+                xmin = (xmin - xOrigin) / pixelWidth + 0.5
+                ymin = (ymin - yOrigin) / pixelHeight + 0.5
+                xmax = (xmax - xOrigin) / pixelWidth + 0.5
+                ymax = (ymax - yOrigin) / pixelHeight + 0.5
+
+                xoffset = xmin
+                yoffset = ymin
+                width = xmax - xmin
+                height = ymax - ymin
+                cutout = []
+                for bi in range(3):
+                    band = ds.GetRasterBand(bi + 1)
+                    band_data = band.ReadAsArray(int(xoffset), int(yoffset),
+                                                 win_xsize=int(width),
+                                                 win_ysize=int(height))
+                    cutout.append(band_data)
+                cutout = np.stack(cutout, -1)  # this is RGB
+
+                # cv2.imwrite('%s/%d.png' % (save_dir, i), cutout[:, :, ::-1])
+                cv2.imencode('.png', cutout[:, :, ::-1])[-1].tofile('%s/%d.png' % (save_dir, i))
+        shp_ds = None
+
+        ds = None
+
+
+
 if __name__ == '__main__':
 
     # get_all_metadata()
@@ -739,9 +835,11 @@ if __name__ == '__main__':
 
     # convert_envi_xml_to_seperate_shapefile()
 
-    test_shp_reading()
+    # test_shp_reading()
 
     # convert_envi_xml_to_one_shapefile_with_multiple_layers()
+
+    extract_fg_images_from_resampled_images()
 
 
 
