@@ -819,10 +819,9 @@ def extract_fg_images_from_resampled_images():
         ds = None
 
 
-
 if __name__ == '__main__':
 
-    # get_all_metadata()
+    get_all_metadata()
     # add_metadata()
 
     # extract_fg_images()
@@ -839,7 +838,7 @@ if __name__ == '__main__':
 
     # convert_envi_xml_to_one_shapefile_with_multiple_layers()
 
-    extract_fg_images_from_resampled_images()
+    # extract_fg_images_from_resampled_images()
 
 
 
