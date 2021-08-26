@@ -4637,7 +4637,7 @@ if __name__ == '__main__':
         check_dataset(subset=subset, save_root=save_root)
         sys.exit(-1)
 
-    if False:
+    if True:
         """
         cached_data_path/train_fg_images.npy
         cached_data_path/train_fg_boxes.npy

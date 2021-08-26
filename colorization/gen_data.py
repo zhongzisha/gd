@@ -8,7 +8,7 @@ from myutils import load_gt_for_detection, compute_offsets
 
 
 src_dir = r'G:\gddata\all'
-dst_dir = r'E:\gd_colorization'
+dst_dir = '/media/ubuntu/Data/gd_coltran'
 
 
 if not os.path.exists(dst_dir):
@@ -19,22 +19,22 @@ def extract_images():
 
     # input_filenames = glob.glob(os.path.join(src_dir, '*.tif'))
     input_filenames = [
-        "G:\\gddata\\all\\威华300m_mosaic.tif",
-        "G:\\gddata\\all\\工业园350m_mosaic.tif",
-        "G:\\gddata\\all\\110kv南连甲乙线N45-N50_0.05m（杆塔、导线、绝缘子、树木）.tif",
-        "G:\\gddata\\all\\110kv江桂线N41-N42（含杆塔、导线、绝缘子、树木）.tif",
-        "G:\\gddata\\all\\110kv苏程线N3-N17（杆塔、导线、绝缘子、树木）.tif",
-        "G:\\gddata\\all\\110kv莱金线N26-N33_N38-N39_N17-N18（杆塔、导线、绝缘子、树木）.tif",
-        "G:\\gddata\\all\\220kvchangmianxiann31-n36.tif",
-        "G:\\gddata\\all\\220kvqinshunxiann64-n65.tif",
-        "G:\\gddata\\all\\220kvchangmianxiann74-n82.tif",
-        "G:\\gddata\\all\\220kvqinshunxiann70-n71.tif",
-        "G:\\gddata\\all\\220kv厂梅线13-14（杆塔、导线、绝缘子、树木）.tif",
-        "G:\\gddata\\all\\220kv长顺线N51-N55_0.05m_杆塔、导线、绝缘子、树木.tif",
-        "G:\\gddata\\all\\候村250m_mosaic.tif",
-        "G:\\gddata\\all\\水口300m_mosaic.tif",
-        "G:\\gddata\\all\\220kvqinshunxiann53-n541.tif",
-        "G:\\gddata\\all\\110kv苏隆线N3-N10（杆塔、导线、绝缘子、树木）.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/威华300m_mosaic.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/工业园350m_mosaic.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv南连甲乙线N45-N50_0.05m（杆塔、导线、绝缘子、树木）.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv江桂线N41-N42（含杆塔、导线、绝缘子、树木）.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv苏程线N3-N17（杆塔、导线、绝缘子、树木）.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv莱金线N26-N33_N38-N39_N17-N18（杆塔、导线、绝缘子、树木）.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvchangmianxiann31-n36.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann64-n65.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvchangmianxiann74-n82.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann70-n71.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kv厂梅线13-14（杆塔、导线、绝缘子、树木）.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kv长顺线N51-N55_0.05m_杆塔、导线、绝缘子、树木.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/候村250m_mosaic.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/水口300m_mosaic.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/220kvqinshunxiann53-n541.tif",
+        "/media/ubuntu/Working/rs/guangdong_aerial/aerial/110kv苏隆线N3-N10（杆塔、导线、绝缘子、树木）.tif",
     ]
 
     for fi, filename in enumerate(input_filenames):
