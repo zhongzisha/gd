@@ -22,6 +22,7 @@ import time
 从gt中提取图像块，包含gt boxes
 """
 
+
 def calchalf_iou(poly1, poly2):
     """
         It is not the iou on usual, the iou is the value of intersection over poly1
@@ -134,7 +135,7 @@ def extract_fg_images_bak(subset='train', save_root=None):
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                      valid_labels=valid_labels_set)
+                                                    valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
             continue
@@ -201,7 +202,7 @@ def extract_fg_images_bak(subset='train', save_root=None):
 
 
 def extract_fg_images_bak2(subset='train', save_root=None, do_rotate=False,
-                      update_cache=False):
+                           update_cache=False):
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -267,7 +268,7 @@ def extract_fg_images_bak2(subset='train', save_root=None, do_rotate=False,
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                      valid_labels=valid_labels_set)
+                                                    valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
             continue
@@ -403,7 +404,7 @@ def check_dataset(subset='train', save_root=None):
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                      valid_labels=valid_labels_set)
+                                                    valid_labels=valid_labels_set)
 
         if len(gt_boxes) > 0:
 
@@ -421,7 +422,7 @@ def check_dataset(subset='train', save_root=None):
                 gt_counts[1], gt_counts[2], gt_counts[3], gt_counts[4]
             ))
 
-            xmin0, ymin0, xmax0, ymax0 = gt_boxes[len(gt_boxes)//2, :]
+            xmin0, ymin0, xmax0, ymax0 = gt_boxes[len(gt_boxes) // 2, :]
             xc = (xmin0 + xmax0) // 2
             yc = (ymin0 + ymax0) // 2
             width, height = xmax0 - xmin0, ymax0 - ymin0
@@ -463,13 +464,12 @@ def check_dataset(subset='train', save_root=None):
                                              win_ysize=int(height))
                 cutout.append(band_data)
             cutout = np.stack(cutout, -1)  # this is RGB
-            print('minmax2', np.min(cutout), np.max(cutout)) 
+            print('minmax2', np.min(cutout), np.max(cutout))
 
             if np.max(cutout) > 255:
                 invalid_lines.append(file_prefix)
-            
-            cv2.imwrite('%s/%d_center.png' % (save_dir, ti), cutout[:, :, ::-1])
 
+            cv2.imwrite('%s/%d_center.png' % (save_dir, ti), cutout[:, :, ::-1])
 
     if len(lines) > 0:
         with open(info_filename, 'w', encoding='utf-8-sig') as fp:
@@ -558,7 +558,7 @@ def check_fg_images_v1(subset='train', save_root=None):
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                      valid_labels=valid_labels_set)
+                                                    valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
             print('no gt boxes')
@@ -703,12 +703,12 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
 
     w1 = w * 1.1 + 16
     h1 = h * 1.1 + 16
-    xmin1, xmax1 = xc - w1//2, xc + w1//2
-    ymin1, ymax1 = yc - h1//2, yc + h1//2
+    xmin1, xmax1 = xc - w1 // 2, xc + w1 // 2
+    ymin1, ymax1 = yc - h1 // 2, yc + h1 // 2
     xmin1 = int(max(1, xmin1))
-    xmax1 = int(min(W-1, xmax1))
+    xmax1 = int(min(W - 1, xmax1))
     ymin1 = int(max(1, ymin1))
-    ymax1 = int(min(H-1, ymax1))
+    ymax1 = int(min(H - 1, ymax1))
     points = []
     labels = []
     for box in boxes:
@@ -743,11 +743,11 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
         # use after.x_int and after.y_int to get rounded integer coordinates
         quads = []
         for i in range(len(kps.keypoints) // 4):
-            p1 = kps_aug.keypoints[4*i]
-            p2 = kps_aug.keypoints[4*i+1]
-            p3 = kps_aug.keypoints[4*i+2]
-            p4 = kps_aug.keypoints[4*i+3]
-            quads.append([[p1.x, p1.y],[p2.x, p2.y],[p3.x, p3.y],[p4.x, p4.y]])
+            p1 = kps_aug.keypoints[4 * i]
+            p2 = kps_aug.keypoints[4 * i + 1]
+            p3 = kps_aug.keypoints[4 * i + 2]
+            p4 = kps_aug.keypoints[4 * i + 3]
+            quads.append([[p1.x, p1.y], [p2.x, p2.y], [p3.x, p3.y], [p4.x, p4.y]])
         quads = np.array(quads).reshape((-1, 4, 2)).astype(np.int32)
 
         imgpoly = shgeo.Polygon([(xmin1, ymin1),
@@ -785,12 +785,13 @@ def extract_patches_and_boxes(image, boxes, xc, yc, w, h, ti, j):
             gt_boxes_list.append(np.array(valid_boxes).reshape((-1, 5)))
 
             if False:
-                save_filename = 'E:/fg_images_shown/fg_%d_%d_%d.jpg' %(ti, j, degree)
+                save_filename = 'E:/fg_images_shown/fg_%d_%d_%d.jpg' % (ti, j, degree)
                 tmp_img = image_aug[ymin1:ymax1, xmin1:xmax1, :]
                 for box in np.array(valid_boxes).reshape((-1, 5)).astype(np.int32):
                     x1, y1, x2, y2, label = box
                     cv2.rectangle(tmp_img, (x1, y1), (x2, y2), color=(255, 255, 0), thickness=2)
-                    cv2.putText(tmp_img, str(label), (x1, y1), fontFace=1, fontScale=1, color=(0, 255, 255), thickness=1)
+                    cv2.putText(tmp_img, str(label), (x1, y1), fontFace=1, fontScale=1, color=(0, 255, 255),
+                                thickness=1)
                 cv2.imwrite(save_filename, tmp_img[:, :, ::-1])
     return ims_list, gt_boxes_list
 
@@ -799,7 +800,7 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
-        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/all'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
         gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
@@ -839,7 +840,7 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
             if not os.path.exists('/media/ubuntu/Data/GantaHQ_Aug/%s/c%d' % (subset, label)):
                 os.makedirs('/media/ubuntu/Data/GantaHQ_Aug/%s/c%d' % (subset, label))
             lines1 = glob.glob(
-                '/media/ubuntu/Data/gd_newAug1_Rot0_4classes/check_fg_images_v1/%s/Ganta_%d/*.jpg' % (subset, label))
+                '/media/ubuntu/Data/gd_newAug1_Rot0_4classes_test/check_fg_images_v1/%s/Ganta_%d/*.jpg' % (subset, label))
             lines1 = [line.split(os.sep)[-1].replace('.jpg', '') for line in lines1]
             print('lines', lines1)
             lines[label] = lines1
@@ -876,11 +877,15 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
         gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
+        print(gt_xml_filename)
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                      valid_labels=valid_labels_set)
+                                                    valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
+            print('no gt boxes')
             continue
+
+        print('num_gt_boxes: ', len(gt_boxes))
 
         for j, (box, label) in enumerate(zip(gt_boxes, gt_labels)):  # per item
             if label == 3:  # 1, 2, 3
@@ -950,8 +955,10 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
 
                         if do_rotate:
                             print('fg ', ti, j, width0, cutout.shape)
-                            patches_list, boxes_list = extract_patches_and_boxes(cutout, np.array(tmp_boxes).reshape(-1, 5),
-                                                                                 xc-xoffset, yc-yoffset, width0, width0,
+                            patches_list, boxes_list = extract_patches_and_boxes(cutout,
+                                                                                 np.array(tmp_boxes).reshape(-1, 5),
+                                                                                 xc - xoffset, yc - yoffset, width0,
+                                                                                 width0,
                                                                                  ti, j)
                             print('rotate done')
                             if len(boxes_list) > 0:
@@ -963,22 +970,23 @@ def extract_fg_images(subset='train', save_root=None, do_rotate=False, update_ca
                             cache_boxes_list += tmp_boxes_list
 
                             if debug:
-                                if len(lines[label]) > 0:
-                                    if '%d_%d' % (ti, j) in lines[label]:
+                                if True: # len(lines[label]) > 0:
+                                    if True: # '%d_%d' % (ti, j) in lines[label]:
                                         for ii, patch in enumerate(tmp_patches_list):
-                                            save_filename = "%s/c%d/%d_%d_%d.png" % (subset, label, ti, j, ii)
+                                            save_filename = "%s/c%d/pos_%d_%d_%d.jpg" % (subset, label, ti, j, ii)
                                             cv2.imwrite("/media/ubuntu/Data/GantaHQ_Aug/%s" % (save_filename),
                                                         patch[:, :, ::-1])
-                                            valid_lines.append(save_filename+'\n')
+                                            valid_lines.append(save_filename + '\n')
     if debug:
         if len(valid_lines) > 0:
             with open("/media/ubuntu/Data/GantaHQ_Aug/%s.txt" % subset, "w") as fp:
                 fp.writelines(valid_lines)
-        return None, None
 
     if len(cache_patches_list) > 0:
         np.save(fg_images_filename, np.array(cache_patches_list, dtype=object), allow_pickle=True)
         np.save(fg_boxes_filename, np.array(cache_boxes_list, dtype=object), allow_pickle=True)
+    else:
+        print('no cache_patches_list')
     return fg_images_filename, fg_boxes_filename
 
 
@@ -986,7 +994,7 @@ def extract_bg_images(subset='train', save_root=None, random_count=0, update_cac
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
-        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/aerial'
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/all'
     else:
         source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
         gt_dir = 'F:/gddata/aerial'  # sys.argv[2]
@@ -1044,8 +1052,9 @@ def extract_bg_images(subset='train', save_root=None, random_count=0, update_cac
             gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
             gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
 
-            gt_boxes, gt_boxes_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                                valid_labels=[1, 2, 3, 4])
+            gt_boxes, gt_boxes_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename,
+                                                              gdal_trans_info=geotransform,
+                                                              valid_labels=[1, 2, 3, 4])
 
             gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_LineRegion14.xml')
 
@@ -1331,7 +1340,7 @@ def compose_fg_bg_images(subset='train', aug_times=1, save_root=None,
 
             bg_filename = bg_filenames[bg_ind]
             file_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
-            bg = cv2.imread(bg_filename)  #RGB
+            bg = cv2.imread(bg_filename)  # RGB
 
             bg_shape = bg.shape[:2]
             if min(bg_shape) < 500 or max(bg_shape) > 2048:
@@ -1429,7 +1438,7 @@ def add_line(im, mask, p0s, p1s):
     line_width = np.random.randint(1, 3)
     for p0, p1 in zip(p0s, p1s):
 
-        d = np.sqrt((p0[0] - p1[0])**2 + (p0[1] - p1[1])**2)
+        d = np.sqrt((p0[0] - p1[0]) ** 2 + (p0[1] - p1[1]) ** 2)
         if d < 30:
             continue
 
@@ -1470,22 +1479,22 @@ def add_line_to_image(im, crop_width=0, crop_height=0):
         x1, x2 = x
         y1, y2 = y
         if abs(x1 - x2) == 1 and (20 < x1 < W - 20):
-            expand = np.random.randint(low=10, high=x1-9, size=2)
+            expand = np.random.randint(low=10, high=x1 - 9, size=2)
             x1_l = x1 - expand[0]
             x1_r = x1 + expand[1]
             p0s, p1s = [], []
             if x1_l >= 3:
                 p0s.append((x1_l, 0))
-                p1s.append((x1_l, H-1))
+                p1s.append((x1_l, H - 1))
             p0s.append((x1, 0))
-            p1s.append((x1, H-1))
-            if x1_r <= W-3:
+            p1s.append((x1, H - 1))
+            if x1_r <= W - 3:
                 p0s.append((x1_r, 0))
-                p1s.append((x1_r, H-1))
+                p1s.append((x1_r, H - 1))
 
             im_sub, mask = add_line(im_sub, mask, p0s, p1s)
         elif abs(y1 - y2) == 1 and (20 < y1 < H - 20):
-            expand = np.random.randint(low=10, high=y1-9, size=2)
+            expand = np.random.randint(low=10, high=y1 - 9, size=2)
             y1_u = y1 - expand[0]
             y1_b = y1 + expand[1]
             p0s, p1s = [], []
@@ -1496,7 +1505,7 @@ def add_line_to_image(im, crop_width=0, crop_height=0):
             p1s.append((W - 1, y1))
             if y1_b <= H - 3:
                 p0s.append((0, y1_b))
-                p1s.append((W-1, y1_b))
+                p1s.append((W - 1, y1_b))
 
             im_sub, mask = add_line(im_sub, mask, p0s, p1s)
         elif abs(x1 - x2) > 10 and abs(y1 - y2) > 10:
@@ -1508,13 +1517,13 @@ def add_line_to_image(im, crop_width=0, crop_height=0):
             b_down = b + expand[1]
             if abs(k) > 1:
                 # y=3, y=H-3
-                p0s = [(int((-3 - bb)/k), 3) for bb in [b, b_up, b_down]]
-                p1s = [(int((-H+3 - bb)/k), H-3) for bb in [b, b_up, b_down]]
+                p0s = [(int((-3 - bb) / k), 3) for bb in [b, b_up, b_down]]
+                p1s = [(int((-H + 3 - bb) / k), H - 3) for bb in [b, b_up, b_down]]
                 im_sub, mask = add_line(im_sub, mask, p0s, p1s)
             elif 1 >= abs(k) > 0.05:
                 # x=3, x=W-3
-                p0s = [(3, int(-k*3-bb)) for bb in [b, b_up, b_down]]
-                p1s = [(W-3, int(-k*(W-3)-bb)) for bb in [b, b_up, b_down]]
+                p0s = [(3, int(-k * 3 - bb)) for bb in [b, b_up, b_down]]
+                p1s = [(W - 3, int(-k * (W - 3) - bb)) for bb in [b, b_up, b_down]]
                 im_sub, mask = add_line(im_sub, mask, p0s, p1s)
 
     # blur the image
@@ -1526,9 +1535,9 @@ def add_line_to_image(im, crop_width=0, crop_height=0):
                                   sigmaX=np.random.choice(sigmas),
                                   sigmaY=np.random.choice(sigmas))
     elif 0.5 <= prob <= 0.8:
-    #     ksize = np.random.choice([3, 5])
-    #     im_sub = cv2.medianBlur(im_sub, ksize=ksize)
-    # else:
+        #     ksize = np.random.choice([3, 5])
+        #     im_sub = cv2.medianBlur(im_sub, ksize=ksize)
+        # else:
         im_sub_with_mask = np.concatenate([im_sub, mask[:, :, None]], axis=2)
         im_sub_with_mask = elastic_transform_v2(im_sub_with_mask, im_sub.shape[1] * 2,
                                                 im_sub.shape[1] * np.random.randint(low=4, high=8) / 100,
@@ -1584,7 +1593,7 @@ def refine_line_aug(subset='train', aug_times=1, save_root=None,
 
             lines.append('%s\n' % save_prefix)
 
-            if True: #np.random.rand() < 0.01:
+            if True:  # np.random.rand() < 0.01:
                 cv2.imwrite('%s/%s.jpg' % (images_shown_root, save_prefix),
                             np.concatenate([im1, 255 * np.stack([mask1, mask1, mask1], axis=2)],
                                            axis=1))  # 不能有中文
@@ -1671,7 +1680,7 @@ def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
         gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
 
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                      valid_labels=valid_labels_set)
+                                                    valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
             continue
@@ -1846,7 +1855,6 @@ def box_aug_v1(subset='train', aug_times=1, save_img=False, save_root=None):
 
 # random points according to the ground truth polygons
 def box_aug_v3(subset='train', aug_times=1, save_root=None):
-
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -1896,8 +1904,8 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
     size0 = 10000
     size1 = -1
 
-    subsizes = [600,800,1024]
-    scales = [1.0, 1.0,1.0]
+    subsizes = [600, 800, 1024]
+    scales = [1.0, 1.0, 1.0]
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -1932,7 +1940,7 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
         gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
 
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                      valid_labels=valid_labels_set)
+                                                    valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
             continue
@@ -1957,7 +1965,7 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
                 if yoffset + sub_h > orig_height - 1:
                     sub_h = orig_height - 1 - yoffset
                 xoffset, yoffset, sub_w, sub_h = [int(val) for val in
-                                                           [xoffset, yoffset, sub_w, sub_h]]
+                                                  [xoffset, yoffset, sub_w, sub_h]]
                 xmin1, ymin1 = xoffset, yoffset
                 xmax1, ymax1 = xoffset + sub_w, yoffset + sub_h
 
@@ -2101,7 +2109,6 @@ def box_aug_v3(subset='train', aug_times=1, save_root=None):
 
 # random points according to the ground truth polygons
 def box_aug_v4(subset='train', aug_times=1, save_root=None):
-
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -2151,8 +2158,8 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
     size0 = 10000
     size1 = -1
 
-    subsizes = [640,800,1024] if 'train' in subset else [800]   # [1024]
-    scales = [1.0,1.0,1.0] if 'train' in subset else [1.0]
+    subsizes = [640, 800, 1024] if 'train' in subset else [800]  # [1024]
+    scales = [1.0, 1.0, 1.0] if 'train' in subset else [1.0]
     gap = 256 if 'train' in subset else 32
 
     for ti in range(len(tiffiles)):
@@ -2188,7 +2195,7 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
         gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
 
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                      valid_labels=valid_labels_set)
+                                                    valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
             continue
@@ -2214,7 +2221,7 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
                 if yoffset + sub_h > orig_height - 1:
                     sub_h = orig_height - 1 - yoffset
                 xoffset, yoffset, sub_w, sub_h = [int(val) for val in
-                                                           [xoffset, yoffset, sub_w, sub_h]]
+                                                  [xoffset, yoffset, sub_w, sub_h]]
                 xmin1, ymin1 = xoffset, yoffset
                 xmax1, ymax1 = xoffset + sub_w, yoffset + sub_h
 
@@ -2228,7 +2235,7 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
                 # im = cv2.resize(cutout, (256, 256))  # BGR
                 # cv2.imwrite(save_filename, im)  # 不能有中文
 
-                if np.min(cutout[:,:,0]) == np.max(cutout[:,:,0]):
+                if np.min(cutout[:, :, 0]) == np.max(cutout[:, :, 0]):
                     continue
 
                 # here, the sub_image box is [xoffset, yoffset, xoffset + sub_w, yoffset + sub_h]
@@ -2374,7 +2381,6 @@ def box_aug_v4(subset='train', aug_times=1, save_root=None):
 
 # random points according to the ground truth polygons
 def box_aug_v5(subset='train', aug_times=1, save_root=None):
-
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -2461,7 +2467,7 @@ def box_aug_v5(subset='train', aug_times=1, save_root=None):
         gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
 
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                      valid_labels=valid_labels_set)
+                                                    valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
             continue
@@ -2488,7 +2494,7 @@ def box_aug_v5(subset='train', aug_times=1, save_root=None):
                     if yoffset + sub_h > orig_height - 1:
                         sub_h = orig_height - 1 - yoffset
                     xoffset, yoffset, sub_w, sub_h = [int(val) for val in
-                                                               [xoffset, yoffset, sub_w, sub_h]]
+                                                      [xoffset, yoffset, sub_w, sub_h]]
                     xmin1, ymin1 = xoffset, yoffset
                     xmax1, ymax1 = xoffset + sub_w, yoffset + sub_h
 
@@ -2502,7 +2508,7 @@ def box_aug_v5(subset='train', aug_times=1, save_root=None):
                     # im = cv2.resize(cutout, (256, 256))  # BGR
                     # cv2.imwrite(save_filename, im)  # 不能有中文
 
-                    if np.min(cutout[:,:,0]) == np.max(cutout[:,:,0]):
+                    if np.min(cutout[:, :, 0]) == np.max(cutout[:, :, 0]):
                         continue
 
                     # here, the sub_image box is [xoffset, yoffset, xoffset + sub_w, yoffset + sub_h]
@@ -2646,10 +2652,8 @@ def box_aug_v5(subset='train', aug_times=1, save_root=None):
             json.dump(data_dict, f_out, indent=4)
 
 
-
 # random points according to the ground truth polygons
 def box_aug_v6(subset='train', aug_times=1, save_root=None):
-
     hostname = socket.gethostname()
     if hostname == 'master':
         source = '/media/ubuntu/Data/%s_list.txt' % (subset)
@@ -2736,7 +2740,7 @@ def box_aug_v6(subset='train', aug_times=1, save_root=None):
         gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
 
         gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
-                                      valid_labels=valid_labels_set)
+                                                    valid_labels=valid_labels_set)
 
         if len(gt_boxes) == 0:
             continue
@@ -2763,7 +2767,7 @@ def box_aug_v6(subset='train', aug_times=1, save_root=None):
                     if yoffset + sub_h > orig_height - 1:
                         sub_h = orig_height - 1 - yoffset
                     xoffset, yoffset, sub_w, sub_h = [int(val) for val in
-                                                               [xoffset, yoffset, sub_w, sub_h]]
+                                                      [xoffset, yoffset, sub_w, sub_h]]
                     xmin1, ymin1 = xoffset, yoffset
                     xmax1, ymax1 = xoffset + sub_w, yoffset + sub_h
 
@@ -2777,7 +2781,7 @@ def box_aug_v6(subset='train', aug_times=1, save_root=None):
                     # im = cv2.resize(cutout, (256, 256))  # BGR
                     # cv2.imwrite(save_filename, im)  # 不能有中文
 
-                    if np.min(cutout[:,:,0]) == np.max(cutout[:,:,0]):
+                    if np.min(cutout[:, :, 0]) == np.max(cutout[:, :, 0]):
                         continue
 
                     # here, the sub_image box is [xoffset, yoffset, xoffset + sub_w, yoffset + sub_h]
@@ -2921,7 +2925,6 @@ def box_aug_v6(subset='train', aug_times=1, save_root=None):
             json.dump(data_dict, f_out, indent=4)
 
 
-
 # random points according to the ground truth polygons
 def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None,
                   gt_postfixes=None):
@@ -2999,11 +3002,11 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None,
 
             gt_polys, gt_labels = load_gt_polys_from_esri_xml(gt_xml_filename, gdal_trans_info=geotransform,
                                                               mapcoords2pixelcoords=True)
-            gt_labels = [gi+1 for _ in range(len(gt_labels))]
+            gt_labels = [gi + 1 for _ in range(len(gt_labels))]
             all_gt_polys.append(gt_polys)
             all_gt_labels.append(gt_labels)
 
-            print('class-%d'%(gi+1), len(gt_polys), len(gt_labels))
+            print('class-%d' % (gi + 1), len(gt_polys), len(gt_labels))
 
         # 首先根据标注生成mask图像，存在内存问题！！！
         print('generate mask ...')
@@ -3027,12 +3030,12 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None,
                     cx, cy = np.mean(poly, axis=0).astype(np.int32)
                     pw = np.max(poly[:, 0]) - np.min(poly[:, 0])
                     ph = np.max(poly[:, 1]) - np.min(poly[:, 1])
-                    ex = np.random.randint(low=int(0.5*pw), high=int(2.0*pw))
-                    ey = np.random.randint(low=int(0.5*ph), high=int(2.0*ph))
-                    xoffset = cx - pw//2 - ex
-                    sub_width = pw + 2*ex
-                    yoffset = cy - ph//2 - ey
-                    sub_height = ph + 2*ey
+                    ex = np.random.randint(low=int(0.5 * pw), high=int(2.0 * pw))
+                    ey = np.random.randint(low=int(0.5 * ph), high=int(2.0 * ph))
+                    xoffset = cx - pw // 2 - ex
+                    sub_width = pw + 2 * ex
+                    yoffset = cy - ph // 2 - ey
+                    sub_height = ph + 2 * ey
 
                     if sub_width < 512:
                         xoffset = cx - np.random.randint(low=256, high=512)
@@ -3068,15 +3071,15 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None,
                     assert img.shape[:2] == seg.shape[:2]
 
                     H, W = img.shape[:2]
-                    num_x_splits = max(1, int(np.round(W/1024)))
-                    num_y_splits = max(1, int(np.round(H/1024)))
+                    num_x_splits = max(1, int(np.round(W / 1024)))
+                    num_y_splits = max(1, int(np.round(H / 1024)))
                     x_splits = np.array_split(np.arange(W, dtype=np.int32), num_x_splits)
                     y_splits = np.array_split(np.arange(H, dtype=np.int32), num_y_splits)
 
                     for sx in range(num_x_splits):
-                        x1, x2 = x_splits[sx][0], x_splits[sx][-1]+1
+                        x1, x2 = x_splits[sx][0], x_splits[sx][-1] + 1
                         for sy in range(num_y_splits):
-                            y1, y2 = y_splits[sy][0], y_splits[sy][-1]+1
+                            y1, y2 = y_splits[sy][0], y_splits[sy][-1] + 1
 
                             img1 = img[y1:y2, x1:x2, ::-1]
                             seg1 = seg[y1:y2, x1:x2]
@@ -3085,8 +3088,8 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None,
                             if seg1_count < 10:
                                 continue
 
-                            if len(np.where(img1[:,:,0]==0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
-                                    or len(np.where(img1[:,:,0]==255)[0]) > 0.4 * np.prod(img1.shape[:2]):
+                            if len(np.where(img1[:, :, 0] == 0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
+                                    or len(np.where(img1[:, :, 0] == 255)[0]) > 0.4 * np.prod(img1.shape[:2]):
                                 continue
 
                             size0 = min(size0, min(img1.shape[:2]))
@@ -3114,11 +3117,9 @@ def aug_mc_seg_v1(subset='train', aug_times=1, save_img=False, save_root=None,
                     del img, seg
         del mask
 
-
     if len(lines) > 0:
         with open(save_root + '/%s_%d_%d.txt' % (subset, size0, size1), 'w') as fp:
             fp.writelines(lines)
-
 
 
 # random points according to the ground truth polygons
@@ -3198,11 +3199,11 @@ def aug_mc_seg_v2(subset='train', aug_times=1, save_img=False, save_root=None,
 
             gt_polys, gt_labels = load_gt_polys_from_esri_xml(gt_xml_filename, gdal_trans_info=geotransform,
                                                               mapcoords2pixelcoords=True)
-            gt_labels = [gi+1 for _ in range(len(gt_labels))]
+            gt_labels = [gi + 1 for _ in range(len(gt_labels))]
             all_gt_polys.append(gt_polys)
             all_gt_labels.append(gt_labels)
 
-            print('class-%d'%(gi+1), len(gt_polys), len(gt_labels))
+            print('class-%d' % (gi + 1), len(gt_polys), len(gt_labels))
 
         # 首先根据标注生成mask图像，存在内存问题！！！
         print('generate mask ...')
@@ -3226,12 +3227,12 @@ def aug_mc_seg_v2(subset='train', aug_times=1, save_img=False, save_root=None,
                     cx, cy = np.mean(poly, axis=0).astype(np.int32)
                     pw = np.max(poly[:, 0]) - np.min(poly[:, 0])
                     ph = np.max(poly[:, 1]) - np.min(poly[:, 1])
-                    ex = np.random.randint(low=int(0.5*pw), high=int(2.0*pw))
-                    ey = np.random.randint(low=int(0.5*ph), high=int(2.0*ph))
-                    xoffset = cx - pw//2 - ex
-                    sub_width = pw + 2*ex
-                    yoffset = cy - ph//2 - ey
-                    sub_height = ph + 2*ey
+                    ex = np.random.randint(low=int(0.5 * pw), high=int(2.0 * pw))
+                    ey = np.random.randint(low=int(0.5 * ph), high=int(2.0 * ph))
+                    xoffset = cx - pw // 2 - ex
+                    sub_width = pw + 2 * ex
+                    yoffset = cy - ph // 2 - ey
+                    sub_height = ph + 2 * ey
 
                     if sub_width < 512:
                         xoffset = cx - np.random.randint(low=256, high=512)
@@ -3268,15 +3269,15 @@ def aug_mc_seg_v2(subset='train', aug_times=1, save_img=False, save_root=None,
 
                     for si, size in enumerate([1024, 2048, 3092]):
                         H, W = img.shape[:2]
-                        num_x_splits = max(1, int(np.round(W/size)))
-                        num_y_splits = max(1, int(np.round(H/size)))
+                        num_x_splits = max(1, int(np.round(W / size)))
+                        num_y_splits = max(1, int(np.round(H / size)))
                         x_splits = np.array_split(np.arange(W, dtype=np.int32), num_x_splits)
                         y_splits = np.array_split(np.arange(H, dtype=np.int32), num_y_splits)
 
                         for sx in range(num_x_splits):
-                            x1, x2 = x_splits[sx][0], x_splits[sx][-1]+1
+                            x1, x2 = x_splits[sx][0], x_splits[sx][-1] + 1
                             for sy in range(num_y_splits):
-                                y1, y2 = y_splits[sy][0], y_splits[sy][-1]+1
+                                y1, y2 = y_splits[sy][0], y_splits[sy][-1] + 1
 
                                 img1 = img[y1:y2, x1:x2, ::-1]
                                 seg1 = seg[y1:y2, x1:x2]
@@ -3304,8 +3305,8 @@ def aug_mc_seg_v2(subset='train', aug_times=1, save_img=False, save_root=None,
                                 if seg1_count < 10:
                                     continue
 
-                                if len(np.where(img1[:,:,0]==0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
-                                        or len(np.where(img1[:,:,0]==255)[0]) > 0.4 * np.prod(img1.shape[:2]):
+                                if len(np.where(img1[:, :, 0] == 0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
+                                        or len(np.where(img1[:, :, 0] == 255)[0]) > 0.4 * np.prod(img1.shape[:2]):
                                     continue
 
                                 size0 = min(size0, min(img1.shape[:2]))
@@ -3333,11 +3334,9 @@ def aug_mc_seg_v2(subset='train', aug_times=1, save_img=False, save_root=None,
                     del img, seg
         del mask
 
-
     if len(lines) > 0:
         with open(save_root + '/%s_%d_%d.txt' % (subset, size0, size1), 'w') as fp:
             fp.writelines(lines)
-
 
 
 # random points according to the ground truth polygons
@@ -3419,11 +3418,11 @@ def aug_mc_seg_v3(subset='train', aug_times=1, save_img=False, save_root=None,
 
             gt_polys, gt_labels = load_gt_polys_from_esri_xml(gt_xml_filename, gdal_trans_info=geotransform,
                                                               mapcoords2pixelcoords=True)
-            gt_labels = [gi+1 for _ in range(len(gt_labels))]
+            gt_labels = [gi + 1 for _ in range(len(gt_labels))]
             all_gt_polys.append(gt_polys)
             all_gt_labels.append(gt_labels)
 
-            print('class-%d'%(gi+1), len(gt_polys), len(gt_labels))
+            print('class-%d' % (gi + 1), len(gt_polys), len(gt_labels))
 
         # 首先根据标注生成mask图像，存在内存问题！！！
         print('generate mask ...')
@@ -3461,7 +3460,7 @@ def aug_mc_seg_v3(subset='train', aug_times=1, save_img=False, save_root=None,
                 #     sub_height = orig_height - yoffset
                 print(oi, len(offsets), xoffset, yoffset, sub_width, sub_height)
                 # band = mask_ds.GetRasterBand(1)
-                mask_sub = mask[(yoffset):(yoffset+sub_height), (xoffset):(xoffset+sub_width)]
+                mask_sub = mask[(yoffset):(yoffset + sub_height), (xoffset):(xoffset + sub_width)]
                 # band.ReadAsArray(xoffset, yoffset, win_xsize=sub_width, win_ysize=sub_height)
                 indices_y, indices_x = np.where(mask_sub > 0)
                 inds = np.arange(len(indices_x))
@@ -3483,12 +3482,12 @@ def aug_mc_seg_v3(subset='train', aug_times=1, save_img=False, save_root=None,
             gt_indices_x = []
             for pi1, (gt_polys, gt_labels) in enumerate(zip(all_gt_polys, all_gt_labels)):
                 for pi2, (poly, label) in enumerate(zip(gt_polys, gt_labels)):  # poly为nx2的点, numpy.array
-                    if label in [2, 4]:  #[building, water, road, landslide]
+                    if label in [2, 4]:  # [building, water, road, landslide]
                         cx, cy = np.mean(poly, axis=0).astype(np.int32)
                         gt_indices_x.append(np.array([cx]))
                         gt_indices_y.append(np.array([cy]))
-                        gt_indices_x.append(np.random.choice(np.arange(cx-32, cx+32), size=np.random.randint(1, 2)))
-                        gt_indices_y.append(np.random.choice(np.arange(cy-32, cy+32), size=np.random.randint(1, 2)))
+                        gt_indices_x.append(np.random.choice(np.arange(cx - 32, cx + 32), size=np.random.randint(1, 2)))
+                        gt_indices_y.append(np.random.choice(np.arange(cy - 32, cy + 32), size=np.random.randint(1, 2)))
             gt_indices_y = np.concatenate(gt_indices_y).reshape(-1, 1)
             gt_indices_x = np.concatenate(gt_indices_x).reshape(-1, 1)
             print(gt_indices_y.shape, gt_indices_x.shape)
@@ -3501,9 +3500,9 @@ def aug_mc_seg_v3(subset='train', aug_times=1, save_img=False, save_root=None,
                 ex = np.random.choice([512, 1024, 2048])
                 ey = np.random.choice([512, 1024, 2048])
                 xoffset = cx - ex
-                sub_width = 2*ex
+                sub_width = 2 * ex
                 yoffset = cy - ey
-                sub_height = 2*ey
+                sub_height = 2 * ey
 
                 if sub_width < 512:
                     xoffset = cx - np.random.randint(low=256, high=512)
@@ -3540,15 +3539,15 @@ def aug_mc_seg_v3(subset='train', aug_times=1, save_img=False, save_root=None,
 
                 for si, size in enumerate(sizes):
                     H, W = img.shape[:2]
-                    num_x_splits = max(1, int(np.round(W/size)))
-                    num_y_splits = max(1, int(np.round(H/size)))
+                    num_x_splits = max(1, int(np.round(W / size)))
+                    num_y_splits = max(1, int(np.round(H / size)))
                     x_splits = np.array_split(np.arange(W, dtype=np.int32), num_x_splits)
                     y_splits = np.array_split(np.arange(H, dtype=np.int32), num_y_splits)
 
                     for sx in range(num_x_splits):
-                        x1, x2 = x_splits[sx][0], x_splits[sx][-1]+1
+                        x1, x2 = x_splits[sx][0], x_splits[sx][-1] + 1
                         for sy in range(num_y_splits):
-                            y1, y2 = y_splits[sy][0], y_splits[sy][-1]+1
+                            y1, y2 = y_splits[sy][0], y_splits[sy][-1] + 1
 
                             img1 = img[y1:y2, x1:x2, ::-1]
                             seg1 = seg[y1:y2, x1:x2]
@@ -3578,12 +3577,12 @@ def aug_mc_seg_v3(subset='train', aug_times=1, save_img=False, save_root=None,
                             if seg1_count < 10:
                                 continue
                             counts = {}
-                            for label in [1, 2, 3, 4]:   # building, water, road, landslide
+                            for label in [1, 2, 3, 4]:  # building, water, road, landslide
                                 counts[label] = len(np.where(seg1 == label)[0])
                             # 如果只包含water和road
                             if counts[2] < 5 and counts[4] < 5 and (counts[1] < 128 or counts[3] < 128):
                                 continue
-                            counts_sum = counts[1] + counts[2]+counts[3]+counts[4]
+                            counts_sum = counts[1] + counts[2] + counts[3] + counts[4]
 
                             if counts_sum < 128:
                                 continue
@@ -3591,13 +3590,13 @@ def aug_mc_seg_v3(subset='train', aug_times=1, save_img=False, save_root=None,
                             if counts_sum > 1.5 * np.prod(seg1.shape[:2]):
                                 continue
 
-                            if len(np.where(img1[:,:,0]==0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
-                                    or len(np.where(img1[:,:,0]==255)[0]) > 0.4 * np.prod(img1.shape[:2]):
+                            if len(np.where(img1[:, :, 0] == 0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
+                                    or len(np.where(img1[:, :, 0] == 255)[0]) > 0.4 * np.prod(img1.shape[:2]):
                                 continue
 
                             minsize = min(img1.shape[:2])
                             maxsize = max(img1.shape[:2])
-                            if maxsize > 1.5*minsize:
+                            if maxsize > 1.5 * minsize:
                                 continue
 
                             size0 = min(size0, min(img1.shape[:2]))
@@ -3624,7 +3623,6 @@ def aug_mc_seg_v3(subset='train', aug_times=1, save_img=False, save_root=None,
                                 cv2.imwrite('%s/%s.jpg' % (images_shown_root, save_prefix), img1)
                 del img, seg
         del mask
-
 
     if len(lines) > 0:
         with open(save_root + '/%s_%d_%d.txt' % (subset, size0, size1), 'w') as fp:
@@ -3710,11 +3708,11 @@ def aug_mc_seg_v4(subset='train', aug_times=1, save_img=False, save_root=None,
 
             gt_polys, gt_labels = load_gt_polys_from_esri_xml(gt_xml_filename, gdal_trans_info=geotransform,
                                                               mapcoords2pixelcoords=True)
-            gt_labels = [gi+1 for _ in range(len(gt_labels))]
+            gt_labels = [gi + 1 for _ in range(len(gt_labels))]
             all_gt_polys.append(gt_polys)
             all_gt_labels.append(gt_labels)
 
-            print('class-%d'%(gi+1), len(gt_polys), len(gt_labels))
+            print('class-%d' % (gi + 1), len(gt_polys), len(gt_labels))
 
         # 首先根据标注生成mask图像，存在内存问题！！！
         print('generate mask ...')
@@ -3750,9 +3748,9 @@ def aug_mc_seg_v4(subset='train', aug_times=1, save_img=False, save_root=None,
                             ex = np.random.choice([512, 600])
                             ey = np.random.choice([512, 600])
                         xoffset = cx - ex
-                        sub_width = 2*ex
+                        sub_width = 2 * ex
                         yoffset = cy - ey
-                        sub_height = 2*ey
+                        sub_height = 2 * ey
 
                         if sub_width < 512:
                             xoffset = cx - np.random.randint(low=256, high=512)
@@ -3815,12 +3813,12 @@ def aug_mc_seg_v4(subset='train', aug_times=1, save_img=False, save_root=None,
                         if seg1_count < 10:
                             continue
                         counts = {}
-                        for label in [1, 2, 3, 4]:   # building, water, road, landslide
+                        for label in [1, 2, 3, 4]:  # building, water, road, landslide
                             counts[label] = len(np.where(seg1 == label)[0])
                         # 如果只包含water和road
                         if counts[2] < 5 and counts[4] < 5 and (counts[1] < 128 or counts[3] < 128):
                             continue
-                        counts_sum = counts[1] + counts[2]+counts[3]+counts[4]
+                        counts_sum = counts[1] + counts[2] + counts[3] + counts[4]
 
                         if counts_sum < 128:
                             continue
@@ -3828,13 +3826,13 @@ def aug_mc_seg_v4(subset='train', aug_times=1, save_img=False, save_root=None,
                         if counts_sum > 1.5 * np.prod(seg1.shape[:2]):
                             continue
 
-                        if len(np.where(img1[:,:,0]==0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
-                                or len(np.where(img1[:,:,0]==255)[0]) > 0.4 * np.prod(img1.shape[:2]):
+                        if len(np.where(img1[:, :, 0] == 0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
+                                or len(np.where(img1[:, :, 0] == 255)[0]) > 0.4 * np.prod(img1.shape[:2]):
                             continue
 
                         minsize = min(img1.shape[:2])
                         maxsize = max(img1.shape[:2])
-                        if maxsize > 1.5*minsize:
+                        if maxsize > 1.5 * minsize:
                             continue
 
                         size0 = min(size0, min(img1.shape[:2]))
@@ -3862,11 +3860,9 @@ def aug_mc_seg_v4(subset='train', aug_times=1, save_img=False, save_root=None,
                         del img, seg
         del mask
 
-
     if len(lines) > 0:
         with open(save_root + '/%s_%d_%d.txt' % (subset, size0, size1), 'w') as fp:
             fp.writelines(lines)
-
 
 
 # random points according to the ground truth polygons
@@ -3948,11 +3944,11 @@ def aug_mc_seg_v5(subset='train', aug_times=1, save_img=False, save_root=None,
 
             gt_polys, gt_labels = load_gt_polys_from_esri_xml(gt_xml_filename, gdal_trans_info=geotransform,
                                                               mapcoords2pixelcoords=True)
-            gt_labels = [gi+1 for _ in range(len(gt_labels))]
+            gt_labels = [gi + 1 for _ in range(len(gt_labels))]
             all_gt_polys.append(gt_polys)
             all_gt_labels.append(gt_labels)
 
-            print('class-%d'%(gi+1), len(gt_polys), len(gt_labels))
+            print('class-%d' % (gi + 1), len(gt_polys), len(gt_labels))
 
         # 首先根据标注生成mask图像，存在内存问题！！！
         print('generate mask ...')
@@ -4008,7 +4004,7 @@ def aug_mc_seg_v5(subset='train', aug_times=1, save_img=False, save_root=None,
                     seg_count = len(np.where(seg > 0)[0])
                     if seg_count < 10:
                         continue
-                                                               
+
                     seg1 = seg
                     seg1 = cv2.resize(seg1, dsize=None, fx=scale, fy=scale,
                                       interpolation=cv2.INTER_NEAREST)
@@ -4079,7 +4075,6 @@ def aug_mc_seg_v5(subset='train', aug_times=1, save_img=False, save_root=None,
                         cv2.imwrite('%s/%s.jpg' % (images_shown_root, save_prefix), img1)
                     del img, seg
         del mask
-
 
     if len(lines) > 0:
         with open(save_root + '/%s_%d_%d.txt' % (subset, size0, size1), 'w') as fp:
@@ -4509,13 +4504,14 @@ def get_args_parser():
     parser.add_argument('--crop_height', default=512, type=int)
     parser.add_argument('--crop_width', default=512, type=int)
     parser.add_argument('--update_cache', default=False, action='store_true')
+    parser.add_argument('--debug', default=False, action='store_true')
 
     return parser
 
 
 def check_cached_fg(subset='train', aug_times=1, save_img=False, save_root=None,
-                         fg_images_filename=None, fg_boxes_filename=None,
-                         bg_images_dir=None):
+                    fg_images_filename=None, fg_boxes_filename=None,
+                    bg_images_dir=None):
     save_root = '%s/%s/' % (save_root, subset)
     if not os.path.exists(save_root):
         os.makedirs(save_root)
@@ -4546,8 +4542,8 @@ def check_cached_fg(subset='train', aug_times=1, save_img=False, save_root=None,
             print(box)
             xmin, ymin, xmax, ymax, label = box.astype(np.int32)
             cv2.rectangle(im, (xmin, ymin), (xmax, ymax), color=(255, 255, 255))
-            cv2.putText(im, str(label), ((xmin+xmax)//2, (ymin+ymax)//2), 1, 1, (0, 0, 255))
-        cv2.imwrite("%s/im-%d.png" %(save_img_shown_path, ind), im)
+            cv2.putText(im, str(label), ((xmin + xmax) // 2, (ymin + ymax) // 2), 1, 1, (0, 0, 255))
+        cv2.imwrite("%s/im-%d.png" % (save_img_shown_path, ind), im)
 
 
 if __name__ == '__main__':
@@ -4566,6 +4562,7 @@ if __name__ == '__main__':
     crop_height = args.crop_height
     crop_width = args.crop_width
     update_cache = args.update_cache
+    debug = args.debug
 
     # for semantic segmentation
     if aug_type in ['mc_seg_v1', 'mc_seg_v2', 'mc_seg_v3',
@@ -4623,7 +4620,7 @@ if __name__ == '__main__':
 
     # for detection aug
     if hostname == 'master':
-        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
+        save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes_test' % (aug_times, do_rotate)
     else:
         save_root = 'E:/gd_newAug%d_Rot%d_4classes' % (aug_times, do_rotate)
 
@@ -4653,12 +4650,12 @@ if __name__ == '__main__':
         fg_images_filename, fg_boxes_filename = extract_fg_images(subset, cached_data_path,
                                                                   do_rotate=do_rotate,
                                                                   update_cache=update_cache,
-                                                                  debug=False)
+                                                                  debug=debug)
 
         # sys.exit(-1)
 
         if False:
-            save_dir = '/media/ubuntu/Data/fg_images_shown/%s' %subset
+            save_dir = '/media/ubuntu/Data/fg_images_shown/%s' % subset
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
             fg_images_list = np.load(fg_images_filename, allow_pickle=True)  # list of RGB images [HxWx3]
@@ -4671,19 +4668,20 @@ if __name__ == '__main__':
                     if label == 3:
                         im = img[y1:y2, x1:x2, ::-1]
                         im = cv2.resize(im, (64, 64))
-                        cv2.imwrite('%s/%d_%d.jpg'%(save_dir, fi, bi), im)
+                        cv2.imwrite('%s/%d_%d.jpg' % (save_dir, fi, bi), im)
                 # pass
         # sys.exit(-1)
 
         print('extract bg images ...')
-        bg_images_dir = extract_bg_images(subset, cached_data_path, random_count, update_cache=update_cache)
+        # bg_images_dir = extract_bg_images(subset, cached_data_path, random_count, update_cache=update_cache)
+        bg_images_dir = None
 
     if aug_type == 'check_cached_fg':
         save_root = '%s/%s' % (save_root, aug_type)
         check_cached_fg(subset=subset, aug_times=aug_times, save_root=save_root,
-                             fg_images_filename=fg_images_filename,
-                             fg_boxes_filename=fg_boxes_filename,
-                             bg_images_dir=bg_images_dir)
+                        fg_images_filename=fg_images_filename,
+                        fg_boxes_filename=fg_boxes_filename,
+                        bg_images_dir=bg_images_dir)
         sys.exit(-1)
 
     print('doing augmentation ...')
