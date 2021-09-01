@@ -4546,6 +4546,119 @@ def check_cached_fg(subset='train', aug_times=1, save_img=False, save_root=None,
         cv2.imwrite("%s/im-%d.png" % (save_img_shown_path, ind), im)
 
 
+def prepare_super_resolution_dataset(subset='train', save_root=None):
+    hostname = socket.gethostname()
+    if hostname == 'master':
+        source = '/media/ubuntu/Data/%s_list.txt' % (subset)
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/all'
+    else:
+        source = 'E:/%s_list.txt' % (subset)  # sys.argv[1]
+        gt_dir = 'F:/gddata/all'  # sys.argv[2]
+
+    info_filename = os.path.join(gt_dir, '{}_infos.csv'.format(subset))
+    # if os.path.exists(info_filename):
+    #     return -1
+
+    save_root = os.path.join(save_root, subset)
+    if not os.path.exists(save_root):
+        os.makedirs(save_root)
+
+    gt_postfix = '_gt_5.xml'
+    valid_labels_set = [1, 2, 3, 4]
+    save_img = True
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    for ti in range(len(tiffiles)):
+        tiffile = tiffiles[ti]
+        file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+
+        print(ti, '=' * 80)
+        print(file_prefix)
+
+        save_dir = os.path.join(save_root, file_prefix)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
+        ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+        print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                     ds.GetDriver().LongName))
+        print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                            ds.RasterYSize,
+                                            ds.RasterCount))
+        print("Projection is {}".format(ds.GetProjection()))
+        projection = ds.GetProjection()
+        projection_sr = osr.SpatialReference(wkt=projection)
+        projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+        geotransform = ds.GetGeoTransform()
+        xOrigin = geotransform[0]
+        yOrigin = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+        print("Height = {}, Width = {}".format(orig_height, orig_width))
+        if geotransform:
+            print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+            print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+            print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+
+        gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + gt_postfix)
+
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+                                                    valid_labels=valid_labels_set)
+
+        # mask_ds = gdal.Open(mask_savefilename, gdal.GA_ReadOnly)
+        offsets = compute_offsets(height=orig_height, width=orig_width, subsize=2040, gap=0)
+
+        for oi, (xoffset, yoffset, sub_width, sub_height) in enumerate(offsets):  # left, up
+            # sub_width = min(orig_width, big_subsize)
+            # sub_height = min(orig_height, big_subsize)
+            # if xoffset + sub_width > orig_width:
+            #     sub_width = orig_width - xoffset
+            # if yoffset + sub_height > orig_height:
+            #     sub_height = orig_height - yoffset
+            print(oi, len(offsets), xoffset, yoffset, sub_width, sub_height)
+
+            xoffset = max(1, xoffset)
+            yoffset = max(1, yoffset)
+            if xoffset + sub_width > orig_width - 1:
+                sub_width = orig_width - 1 - xoffset
+            if yoffset + sub_height > orig_height - 1:
+                sub_height = orig_height - 1 - yoffset
+            xoffset, yoffset, sub_width, sub_height = [int(val) for val in
+                                                       [xoffset, yoffset, sub_width, sub_height]]
+
+            # print('processing sub image %d' % oi, xoffset, yoffset, sub_width, sub_height)
+            img = np.zeros((sub_height, sub_width, 3), dtype=np.uint8)  # RGB format
+            for b in range(3):
+                band = ds.GetRasterBand(b + 1)
+                img[:, :, b] = band.ReadAsArray(xoffset, yoffset, win_xsize=sub_width, win_ysize=sub_height)
+
+            img1 = img
+            # img1 = cv2.resize(img, dsize=None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+            img1_sum = np.sum(img1, axis=2)
+            indices_y, indices_x = np.where(img1_sum > 0)
+            if len(indices_x) == 0:
+                continue
+
+            img1 = img1[:, :, ::-1]
+            if len(np.where(img1[:, :, 0] == 0)[0]) > 0.4 * np.prod(img1.shape[:2]) \
+                    or len(np.where(img1[:, :, 0] == 255)[0]) > 0.4 * np.prod(img1.shape[:2]):
+                continue
+
+            save_prefix = '%03d_%d' % (ti, oi)
+            cv2.imwrite('%s/%s.jpg' % (save_dir, save_prefix), img1)  # 不能有中文
+
+
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser('gd augmentation', parents=[get_args_parser()])
@@ -4632,6 +4745,11 @@ if __name__ == '__main__':
     if aug_type == 'check_dataset':
         save_root = '%s/%s' % (save_root, aug_type)
         check_dataset(subset=subset, save_root=save_root)
+        sys.exit(-1)
+
+    if aug_type == 'super_resolution':
+        save_root = '%s/%s' % (save_root, aug_type)
+        prepare_super_resolution_dataset(subset=subset, save_root=save_root)
         sys.exit(-1)
 
     if True:
