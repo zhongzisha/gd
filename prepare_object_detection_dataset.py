@@ -18,6 +18,12 @@ from imgaug.augmentables import Keypoint, KeypointsOnImage
 import shapely.geometry as shgeo
 import time
 
+from xpinyin import Pinyin
+
+
+"""
+pip install xpinyin -i http://pypi.douban.com/simple --trusted-host pypi.douban.com
+"""
 
 def prepare_object_detection_dataset(save_root):
     hostname = socket.gethostname()
@@ -45,10 +51,19 @@ def process_one_tif(save_root=None, tiffile=None):
     else:
         gt_dir = 'G:/gddata/all'  # sys.argv[2]
 
+    pinyin = Pinyin()
     file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
     print(file_prefix)
+    if '（' in file_prefix and '）' in file_prefix:
+        invalid_0 = file_prefix.find('（')
+        invalid_1 = file_prefix.find('）')
+        new_file_prefix = file_prefix[:invalid_0] + file_prefix[(invalid_1+1):]
+        new_file_prefix = new_file_prefix.replace('杆塔、导线、绝缘子、树木', '')
+    else:
+        new_file_prefix = file_prefix
+    new_file_prefix = pinyin.get_pinyin(new_file_prefix.replace('、', '_'))
 
-    save_dir = '%s/%s/' % (save_root, file_prefix)
+    save_dir = '%s/%s/' % (save_root, new_file_prefix)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     else:
@@ -131,7 +146,7 @@ def process_one_tif(save_root=None, tiffile=None):
                 # if yoffset + sub_height > orig_height:
                 #     sub_height = orig_height - yoffset
                 print(oi, len(offsets), xoffset, yoffset, sub_w, sub_h)
-                save_prefix = '%s_%d_%d' % (file_prefix, si, oi)
+                save_prefix = '%s_%d_%d' % (new_file_prefix, si, oi)
 
                 xoffset = max(1, xoffset)
                 yoffset = max(1, yoffset)
@@ -355,6 +370,8 @@ if __name__ == '__main__':
     # for detection aug
     if hostname == 'master':
         save_root = '/media/ubuntu/Data/gd_newAug%d_Rot%d_4classes_object_detection' % (aug_times, do_rotate)
+    elif hostname == 'master3':
+        save_root = '/media/ubuntu/Temp/gd_newAug%d_Rot%d_4classes_object_detection' % (aug_times, do_rotate)
     else:
         save_root = r'E:\gd_newAug%d_Rot%d_4classes_object_detection_test' % (aug_times, do_rotate)
 

@@ -120,6 +120,10 @@ def process_one_tif_split_data_for_landslide_segmentation(save_root=None, tiffil
     file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
     print(file_prefix)
 
+    model_savefilename = os.path.join(save_root, file_prefix, 'OneClassSVM.joblib')
+    if not os.path.exists(model_savefilename):
+        return
+
     # valid_labels_set = [1, 2, 3, 4]
     valid_labels_set = [10]
     palette = np.random.randint(0, 255, size=(len(valid_labels_set), 3))  # building, water, road, landslide
@@ -166,6 +170,10 @@ def process_one_tif_merge_data_for_landslide_segmentation(save_root=None, tiffil
 
     file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
     print(file_prefix)
+
+    model_savefilename = os.path.join(save_root, file_prefix, 'OneClassSVM.joblib')
+    if os.path.exists(model_savefilename):
+        return
 
     # valid_labels_set = [1, 2, 3, 4]
     valid_labels_set = [10]
@@ -222,6 +230,12 @@ def check_positive_samples(kernel='linear', gamma=0.1, nu=0.5):
     filename = r'E:\gd_newAug1_Rot0_4classes_landslide_segmentation_test\landslide_segmentation\110kv江桂线N41-N42（含杆塔、导线、绝缘子、树木）\landslide_positive_samples.png'
     im = np.array(Image.open(filename))
     X = im.reshape(-1, 3)
+    print(X.shape)
+    X = np.unique(X, axis=0)  # remove duplicates
+    print('after remove duplicates ', X.shape)
+    if X.shape[0] > 100000:
+        rnd_inds = np.random.choice(np.arange(X.shape[0]), replace=False, size=100000)
+        X = X[rnd_inds, :]
     print(X.shape)
     svm = OneClassSVM(kernel=kernel, gamma=gamma, nu=nu)
     print(svm)
@@ -294,6 +308,12 @@ def train_oneclasssvm_one_file(save_root, tiffile, kernel='linear', gamma=0.1, n
 
     im = np.array(Image.open(filename))
     X = im.reshape(-1, 3)
+    print(X.shape)
+    X = np.unique(X, axis=0)  # remove duplicates
+    print('after remove duplicates ', X.shape)
+    if X.shape[0] > 100000:
+        rnd_inds = np.random.choice(np.arange(X.shape[0]), replace=False, size=100000)
+        X = X[rnd_inds, :]
     print(X.shape)
     clf = OneClassSVM(kernel=kernel, gamma=gamma, nu=nu)
     print(clf)
