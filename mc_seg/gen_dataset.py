@@ -1,23 +1,15 @@
-import copy
 import sys, os, glob, shutil
 
 sys.path.insert(0, 'F:/gd')
-import argparse
 import cv2
 import numpy as np
-import torch
 from osgeo import gdal, osr, ogr
 from natsort import natsorted
 from myutils import load_gt_from_txt, load_gt_from_esri_xml, py_cpu_nms, box_iou_np, \
     box_intersection_np, load_gt_polys_from_esri_xml, compute_offsets, alpha_map, elastic_transform_v2, \
     load_gt_for_detection
 import json
-import socket
-from PIL import Image, ImageDraw, ImageFilter
-import imgaug as ia
-import imgaug.augmenters as iaa
-from imgaug.augmentables import Keypoint, KeypointsOnImage
-import shapely.geometry as shgeo
+from PIL import Image
 import time
 import xml.dom.minidom
 
@@ -386,12 +378,13 @@ def main_using_shp_single_tif(subset):
             fp.writelines(lines)
 
 
-def main_using_shp_multi_tif(subset, random_count=0):
+def main_using_shp_multi_tif(subset, random_count=0, use_resampled_tif=False):
     source = 'G:\\gddata\\all'
     source_resampled = 'E:\\gddata_resampled_half'
     shp_root_dir = 'E:\\Downloads\\mc_seg\\shps'
     save_dir = 'E:\\Downloads\\mc_seg\\data_using_shp_multi_random%d' % random_count
     bands_info_txt = "E:\\Downloads\\mc_seg\\tifs\\bands_info.txt"
+    invalid_tifs_txt = "E:\\Downloads\\mc_seg\\tifs\\invalid_tifs.txt"
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
@@ -424,6 +417,10 @@ def main_using_shp_multi_tif(subset, random_count=0):
     if os.path.exists(bands_info_txt):
         with open(bands_info_txt, 'r') as fp:
             bands_info = [line.strip() for line in fp.readlines()]
+    invalid_tifs = []
+    if os.path.exists(invalid_tifs_txt):
+        with open(invalid_tifs_txt, 'r', encoding='utf-8-sig') as fp:
+            invalid_tifs = [line.strip() for line in fp.readlines()]
 
     tiffiles = None
     if os.path.isfile(source) and source[-4:] == '.txt':
@@ -436,11 +433,11 @@ def main_using_shp_multi_tif(subset, random_count=0):
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]  # 'E:\\gddata_resampled\\110kv江桂线N41-N42（含杆塔、导线、绝缘子、树木）.tif'
         file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
-        if 'Original' in file_prefix:
+        if 'Original' in file_prefix or file_prefix in invalid_tifs:
             continue
 
         # if we have resmapled dataset
-        if os.path.exists(os.path.join(source_resampled, file_prefix + '.tif')):
+        if use_resampled_tif and os.path.exists(os.path.join(source_resampled, file_prefix + '.tif')):
             tiffile = os.path.join(source_resampled, file_prefix + '.tif')
 
         print(file_prefix)
@@ -1018,7 +1015,7 @@ def gen_tower_detection_dataset():
     bands_info_txt = "E:\\Downloads\\mc_seg\\tifs\\bands_info.txt"
     invalid_tifs_txt = "E:\\Downloads\\mc_seg\\tifs\\invalid_tifs.txt"
 
-    save_dir = 'E:/Downloads/tower_detection_2gaps/'
+    save_dir = 'E:/Downloads/tower_detection_noGap/'
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
@@ -1066,7 +1063,7 @@ def gen_tower_detection_dataset():
 
     subsizes = [1024]
     scales = [1.0]
-    gaps = [256, 512]
+    gaps = [0]  # [256]
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -1272,7 +1269,7 @@ def gen_tower_detection_dataset():
 
 
 # using predefined split train and val set
-def gen_tower_detection_dataset_version2(subset='train'):
+def gen_tower_detection_dataset_v2(subset='train'):
     source = 'G:/gddata/all'  # 'E:\\Downloads\\mc_seg\\tifs\\%s_list.txt' % subset  # 'E:/%s_list.txt' % subset  # sys.argv[1]
     gt_dir = 'G:/gddata/all'  # sys.argv[2]
     bands_info_txt = "E:\\Downloads\\mc_seg\\tifs\\bands_info.txt"
@@ -1819,6 +1816,118 @@ def gen_tower_detection_dataset_crossvalidation():
                 json.dump(val_dict, f_out, indent=4)
 
 
+def test_shp():
+    reference_tif_filename = r'G:\gddata\all\2-WV03-在建杆塔.tif'
+    name1 = r'E:\Downloads\mc_seg\logs\U_Net_512_4_0.0001\epoch-50\test_tif\2-WV03-在建杆塔\landslide.shp'
+    name2 = r'E:\Downloads\mc_seg\logs\SMP_UnetPlusPlus_512_8_0.001\epoch-50\test_tif\2-WV03-在建杆塔\landslide.shp'
+    driver = ogr.GetDriverByName("ESRI Shapefile")
+    s1 = driver.Open(name1)
+    s2 = driver.Open(name2)
+    ds = gdal.Open(reference_tif_filename, gdal.GA_ReadOnly)
+    gdal_trans_info = ds.GetGeoTransform()
+    gdal_projection = ds.GetProjection()
+    gdal_projection_sr = osr.SpatialReference(wkt=gdal_projection)
+    ds = None
+    layer1 = s1.GetLayer()
+    layer2 = s2.GetLayer()
+    # outArea = []
+
+    label_name = "landslide"
+    outDriver = ogr.GetDriverByName('ESRI Shapefile')
+    shp_filename = r'E:\Downloads\mc_seg\logs\U_Net_512_4_0.0001\epoch-50\test_tif\2-WV03-在建杆塔\landslide_inter.shp'
+    outDataSource = outDriver.CreateDataSource(shp_filename)
+    outLayer = outDataSource.CreateLayer(label_name, gdal_projection_sr, geom_type=ogr.wkbPolygon)
+    featureDefn = outLayer.GetLayerDefn()
+    newField = ogr.FieldDefn("Class", ogr.OFTString)
+    outLayer.CreateField(newField)
+
+    for feat1 in layer1:
+        geom1 = feat1.GetGeometryRef()
+        for feat2 in layer2:
+            geom2 = feat2.GetGeometryRef()
+            if geom2.Intersects(geom1):
+                inter = geom2.Intersection(geom1)
+                print(type(geom1), type(inter))
+                if inter is not None:
+                    # outArea.append(inter.GetArea())
+
+                    # add new geom to layer
+                    outFeature = ogr.Feature(featureDefn)
+                    outFeature.SetGeometry(inter)
+                    outFeature.SetField("Class", label_name)
+                    outLayer.CreateFeature(outFeature)
+                    outFeature.Destroy()
+        layer2.ResetReading()
+    # print(outArea)
+    featureDefn = None
+    outLayer = None
+    outDataSource.Destroy()
+    outDataSource = None
+
+
+def dice_coef(y_true, y_pred):
+    y_true_f = y_true.flatten()
+    y_pred_f = y_pred.flatten()
+    intersection = np.sum(y_true_f * y_pred_f)
+    smooth = 0.0001
+    return (2. * intersection + smooth) / (np.sum(y_true_f) + np.sum(y_pred_f) + smooth)
+
+
+def dice_coef_multilabel(y_true, y_pred, numLabels):
+    dices = np.zeros(numLabels, dtype=np.float32)
+    for index in range(numLabels):
+        tmp_dice = dice_coef(y_true[:,:,index], y_pred[:,:,index])
+        dices[index] = tmp_dice
+    return dices
+
+
+def test_multiclass_dice():
+    gt_images_dir = r'E:\line_foreign_object_detection\augmented_data_v2\val\annotations_with_foreign'
+    pred_images_dir = r'E:\line_foreign_object_detection\logs_v2\U_Net_512_2_0.001\val'
+
+    valid_labels = [1, 2]
+    lines = []
+    all_dices = []
+    for gt_filename in glob.glob(os.path.join(gt_images_dir, '*.png')):
+        prefix = os.path.basename(gt_filename).replace('.png', '')
+        pred_filename = os.path.join(pred_images_dir, prefix + '_binary.png')
+        # if True:
+        #     gt_filename = r'E:\line_foreign_object_detection\augmented_data\val\annotations_with_foreign\bg_0_0_0_0000000051.png'
+        #     pred_filename = r'E:\line_foreign_object_detection\logs\U_Net_512_2_0.001\val\bg_0_0_0_0000000051_binary.png'
+        #     gt = cv2.imread(gt_filename)[:, :, 0]
+        #     pred = cv2.imread(pred_filename)[:, :, 0]
+        # else:
+        #     gt = np.zeros((200, 200), dtype=np.uint8)
+        #     pred = np.zeros((200, 200), dtype=np.uint8)
+        #     gt[50:100, 50:100] = 1
+        #     gt[110:150, 110:130] = 2
+        #     pred[40:90, 40:90] = 1
+        #     pred[100:140, 90:150] =2
+
+        if os.path.exists(gt_filename) and os.path.exists(pred_filename):
+            gt = cv2.imread(gt_filename)[:, :, 0]
+            pred = cv2.imread(pred_filename)[:, :, 0]
+            H, W = gt.shape[:2]
+            gt_onehot = np.zeros((H, W, len(valid_labels)), dtype=np.float32)
+            pred_onehot = np.zeros((H, W, len(valid_labels)), dtype=np.float32)
+            for i, label in enumerate(valid_labels):
+                gt_onehot[gt == label, i] = 1
+                pred_onehot[pred == label, i] = 1
+
+            tmp_dices = dice_coef_multilabel(gt_onehot, pred_onehot, len(valid_labels))
+            if tmp_dices[0] > 0.5:
+                lines.append('%s,%f,%f\n' % (prefix, tmp_dices[0], tmp_dices[1]))
+                all_dices.append(tmp_dices)
+    if len(lines) > 0:
+        with open(os.path.join(pred_images_dir, 'results.csv'), 'w') as fp:
+            fp.writelines(lines)
+
+        all_dices = np.stack(all_dices, axis=1)
+        print('all_dices')
+        print(all_dices)
+        print(np.mean(all_dices, axis=1))
+
+
 if __name__ == '__main__':
     action = sys.argv[1]
     print(action)
@@ -1845,8 +1954,12 @@ if __name__ == '__main__':
         resample_aerial_tifs(method=method, res_in_cm=res_in_cm)
     elif action == 'gen_tower_detection_dataset':
         gen_tower_detection_dataset()
-    elif action == 'gen_tower_detection_dataset_version2':
-        gen_tower_detection_dataset_version2(subset='train')
-        gen_tower_detection_dataset_version2(subset='val')
+    elif action == 'gen_tower_detection_dataset_v2':
+        gen_tower_detection_dataset_v2(subset='train')
+        gen_tower_detection_dataset_v2(subset='val')
     elif action == 'gen_tower_detection_dataset_crossvalidation':
         gen_tower_detection_dataset_crossvalidation()
+    elif action == 'test_shp':
+        test_shp()
+    elif action == 'test_multiclass_dice':
+        test_multiclass_dice()
