@@ -31,6 +31,23 @@ else:
     im1_filepath = '/media/ubuntu/Data/insulator/BData/images_with_alpha/038_aug_1.png'
     colors_images_dir = '/media/ubuntu/Data/insulator/BData/insulator_colors'
 
+colors_images = [cv2.imread(filename, cv2.IMREAD_UNCHANGED)
+                 for filename in glob.glob(os.path.join(colors_images_dir, '*.png'))]
+COLOR_CENTERS = []
+n_clusters = 20
+for im in colors_images:
+    print(im.shape)
+    cluster = KMeans(n_clusters=n_clusters)
+    cluster.fit(im.reshape(-1, 3))
+    print('cluster centers: ', cluster.cluster_centers_)
+    new_cluster = []
+    for center in cluster.cluster_centers_:
+        if np.any(center < 240):
+            new_cluster.append(center)
+    COLOR_CENTERS.append(np.array(new_cluster))
+    print(cluster.labels_.shape)
+print(COLOR_CENTERS)
+
 
 def generate_insulator_fg_images(count, debug=False):
     # im0 = cv2.imread('E:/Downloads/BData/images_with_alpha/038_aug_0.png', cv2.IMREAD_UNCHANGED)
@@ -127,64 +144,47 @@ def generate_insulator_fg_images(count, debug=False):
             #             bgr)
             boxes.append([xmin, ymin, xmax, ymax, 3])
 
-        fg_images.append(im)
-        fg_boxes.append(boxes)
+        if np.random.rand() > 0.5:
 
-        if False and np.random.rand() > 0.5:
-            # colors_images = [cv2.imread(filename, cv2.IMREAD_UNCHANGED)
-            #                  for filename in glob.glob(os.path.join('E:/Downloads/BData/insulator_colors/*.png'))]
-            colors_images = [cv2.imread(filename, cv2.IMREAD_UNCHANGED)
-                             for filename in glob.glob(os.path.join(colors_images_dir, '*.png'))]
-            color_centers = []
-            n_clusters = 20
-            for im in colors_images:
-                print(im.shape)
-                cluster = KMeans(n_clusters=n_clusters)
-                cluster.fit(im.reshape(-1, 3))
-                print('cluster centers: ', cluster.cluster_centers_)
-                new_cluster = []
-                for center in cluster.cluster_centers_:
-                    if np.any(center < 240):
-                        new_cluster.append(center)
-                color_centers.append(np.array(new_cluster))
-                print(cluster.labels_.shape)
-            print(color_centers)
-            # sys.exit(-1)
-
-            print('colored')
-            predefined_cluster = color_centers[np.random.choice(np.arange(len(color_centers)))].astype(np.uint8)
+            if debug: print('colored')
+            predefined_cluster = COLOR_CENTERS[np.random.choice(np.arange(len(COLOR_CENTERS)))].astype(np.uint8)
             im_new = im.copy()
             bgr, alpha = im_new[:, :, :3], im_new[:, :, 3]
-            print('alpha unique', np.unique(alpha))
-            cluster = KMeans(n_clusters=predefined_cluster.shape[0])
-            X = bgr[np.where(alpha)].reshape(-1, 3)
-            print(X[:10, :])
-            cluster.fit(X)
-            labels = cluster.labels_
-            print('cluster center', cluster.cluster_centers_)
-            new_bgr = np.zeros((len(labels), 3), dtype=np.uint8)
-            for c in range(predefined_cluster.shape[0]):
-                new_bgr[labels == c, :] = predefined_cluster[np.random.choice(np.arange(predefined_cluster.shape[0]))]
-            bgr[np.where(alpha)] = new_bgr + np.random.randint(-30, 30, size=(len(labels), 3))
+            if debug: print('alpha unique', np.unique(alpha))
+            # cluster = KMeans(n_clusters=predefined_cluster.shape[0])
+            # X = bgr[np.where(alpha)].reshape(-1, 3)
+            # print(X[:10, :])
+            # cluster.fit(X)
+            # labels = cluster.labels_
+            # print('cluster center', cluster.cluster_centers_)
+            # new_bgr = np.zeros((len(labels), 3), dtype=np.uint8)
+            # for c in range(predefined_cluster.shape[0]):
+            #     new_bgr[labels == c, :] = predefined_cluster[np.random.choice(np.arange(predefined_cluster.shape[0]))]
+            bgr[np.where(alpha)] = predefined_cluster[np.random.choice(np.arange(predefined_cluster.shape[0]))]
+            # new_bgr + np.random.randint(-30, 30, size=(len(labels), 3))
             bgr[bgr < 0] = 0
             bgr[bgr > 255] = 255
             bgr = cv2.GaussianBlur(bgr, ksize=(np.random.choice([3, 5, 7]), np.random.choice([3, 5, 7])),
                                    sigmaX=np.random.choice([0.1, 1, 10]))
-            print('bgr', bgr.shape)
+            if debug: print('bgr', bgr.shape)
             im_new = np.concatenate([bgr, alpha[:, :, None]], axis=2)
             # cv2.imwrite(os.path.join(save_dir, 'shown', '%03d_colored.png' % index),
             #             np.concatenate([bgr, alpha[:, :, None]], axis=2))
-
-            bgr = bgr.copy()
-            for s1, s2 in inds:
-                cv2.rectangle(bgr,
-                              (xmins[s1] + np.random.randint(5, 15), np.random.randint(5, 10)),
-                              (
-                                  xmins[s2] + im0.shape[1] - np.random.randint(5, 15),
-                                  im0.shape[0] - np.random.randint(5, 10)),
-                              color=(0, 0, 255), thickness=2)
-                # cv2.imwrite(os.path.join(save_dir, 'shown', '%03d_colored_merged.png' % index),
-                #             bgr)
+            if debug:
+                bgr = bgr.copy()
+                for s1, s2 in inds:
+                    cv2.rectangle(bgr,
+                                  (xmins[s1] + np.random.randint(5, 15), np.random.randint(5, 10)),
+                                  (
+                                      xmins[s2] + im0.shape[1] - np.random.randint(5, 15),
+                                      im0.shape[0] - np.random.randint(5, 10)),
+                                  color=(0, 0, 255), thickness=2)
+                    # cv2.imwrite(os.path.join(save_dir, 'shown', '%03d_colored_merged.png' % index),
+                    #             bgr)
+            fg_images.append(im_new)
+        else:
+            fg_images.append(im)
+        fg_boxes.append(boxes)
 
     return fg_images, fg_boxes
 
@@ -228,7 +228,7 @@ def paste_fg_images_to_bg(im, mask, mask_k, all_fg_images, all_fg_boxes, count=1
         fg = all_fg_images[fg_ind]
         fg_boxes = all_fg_boxes[fg_ind]
         scale_h = np.random.randint(20, 30) / 200.
-        scale_w = scale_h * np.random.randint(80, 100) / 100.
+        scale_w = scale_h * np.random.randint(70, 90) / 100.
         fg = cv2.resize(fg, dsize=None, fx=scale_w, fy=scale_h, interpolation=cv2.INTER_NEAREST)
         h, w = fg.shape[:2]
 
@@ -811,18 +811,18 @@ if __name__ == '__main__':
 
     if os.name == 'nt':
         bg_images_dir = 'D:/train1_bg_images/'
-        save_root = 'E:/insulator_detection/augmented_data_v2/'
+        save_root = 'E:/insulator_detection/augmented_data_v2_colored/'
         refine_line_aug(subset='train', aug_times=1, save_root=save_root,
                                  crop_height=0, crop_width=0,
                                  fg_images_filename=None, fg_boxes_filename=None,
                                  bg_images_dir=bg_images_dir, random_count=2000,
                                  add_insulators=True)
-        # bg_images_dir = 'D:/val1_bg_images/'
-        # refine_line_aug(subset='val', aug_times=1, save_root=save_root,
-        #                 crop_height=0, crop_width=0,
-        #                 fg_images_filename=None, fg_boxes_filename=None,
-        #                 bg_images_dir=bg_images_dir, random_count=500,
-        #                 add_insulators=True)
+        bg_images_dir = 'D:/val1_bg_images/'
+        refine_line_aug(subset='val', aug_times=1, save_root=save_root,
+                        crop_height=0, crop_width=0,
+                        fg_images_filename=None, fg_boxes_filename=None,
+                        bg_images_dir=bg_images_dir, random_count=500,
+                        add_insulators=True)
     else:
 
         bg_images_dir = '/media/ubuntu/Data/gd_cached_path/train1_bg_images/'
