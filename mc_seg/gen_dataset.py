@@ -1274,7 +1274,7 @@ def gen_tower_detection_dataset_v3():
     bands_info_txt = "E:\\Downloads\\mc_seg\\tifs\\bands_info.txt"
     invalid_tifs_txt = "E:\\Downloads\\mc_seg\\tifs\\invalid_tifs.txt"
 
-    save_dir = 'E:/Downloads/tower_detection_v3/'
+    save_dir = 'E:/Downloads/tower_detection_v3_1/'
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
@@ -1364,35 +1364,35 @@ def gen_tower_detection_dataset_v3():
         if len(gt_boxes) == 0:
             continue
 
-        gt_boxes1 = np.copy(gt_boxes)
-        xmin, ymin = np.min(gt_boxes1[:, 0:2], axis=0)
-        xmax, ymax = np.max(gt_boxes1[:, 2:4], axis=0)
-        w, h = xmax - xmin, ymax - ymin
-
-        box_centers = []
-        for box in gt_boxes1:
-            x1, y1, x2, y2 = box
-            xc = (x1 + x2) // 2
-            yc = (y1 + y2) // 2
-            box_centers.append([xc, yc])
-        box_centers = np.array(box_centers).reshape(-1, 2)
-
-        if w > h:
-            idx = np.argsort(box_centers[:, 0])
-        else:
-            idx = np.argsort(box_centers[:, 1])
-
-        gt_boxes1 = gt_boxes1[idx]
-        box_centers = box_centers[idx]
-        idx = int(np.floor(0.8 * len(box_centers)))
-        if idx == box_centers.shape[0] - 1:
-            idx = box_centers.shape[0] - 2
-        split_xc = (box_centers[idx, 0] + box_centers[idx + 1, 0]) // 2
-        split_yc = (box_centers[idx, 1] + box_centers[idx + 1, 1]) // 2
-        if w > h:
-            print('using split_xc')
-        else:
-            print('using split_yc')
+        # gt_boxes1 = np.copy(gt_boxes)
+        # xmin, ymin = np.min(gt_boxes1[:, 0:2], axis=0)
+        # xmax, ymax = np.max(gt_boxes1[:, 2:4], axis=0)
+        # w, h = xmax - xmin, ymax - ymin
+        #
+        # box_centers = []
+        # for box in gt_boxes1:
+        #     x1, y1, x2, y2 = box
+        #     xc = (x1 + x2) // 2
+        #     yc = (y1 + y2) // 2
+        #     box_centers.append([xc, yc])
+        # box_centers = np.array(box_centers).reshape(-1, 2)
+        #
+        # if w > h:
+        #     idx = np.argsort(box_centers[:, 0])
+        # else:
+        #     idx = np.argsort(box_centers[:, 1])
+        #
+        # gt_boxes1 = gt_boxes1[idx]
+        # box_centers = box_centers[idx]
+        # idx = int(np.floor(0.8 * len(box_centers)))
+        # if idx == box_centers.shape[0] - 1:
+        #     idx = box_centers.shape[0] - 2
+        # split_xc = (box_centers[idx, 0] + box_centers[idx + 1, 0]) // 2
+        # split_yc = (box_centers[idx, 1] + box_centers[idx + 1, 1]) // 2
+        # if w > h:
+        #     print('using split_xc')
+        # else:
+        #     print('using split_yc')
 
         for si, (subsize, scale) in enumerate(zip(subsizes, scales)):
 
@@ -1431,18 +1431,22 @@ def gen_tower_detection_dataset_v3():
                         continue
 
                     # check is in train or in val
-                    if w > h:
-                        print('using split_xc')
-                        if split_xc > (xmax1 + sub_w // 2):
-                            is_train = True
-                        else:
-                            is_train = False
+                    # if w > h:
+                    #     print('using split_xc')
+                    #     if split_xc > (xmax1 + sub_w // 2):
+                    #         is_train = True
+                    #     else:
+                    #         is_train = False
+                    # else:
+                    #     print('using split_yc')
+                    #     if split_yc > (ymax1 + sub_h // 2):
+                    #         is_train = True
+                    #     else:
+                    #         is_train = False
+                    if np.random.rand() < 0.8:
+                        is_train = True
                     else:
-                        print('using split_yc')
-                        if split_yc > (ymax1 + sub_h // 2):
-                            is_train = True
-                        else:
-                            is_train = False
+                        is_train = False
 
                     # here, the sub_image box is [xoffset, yoffset, xoffset + sub_w, yoffset + sub_h]
                     # find all gt_boxes in this sub-rectangle
@@ -1498,54 +1502,58 @@ def gen_tower_detection_dataset_v3():
 
                     if len(sub_gt_boxes) > 0:
 
-                        single_image = {'file_name': save_prefix + '.jpg', 'id': image_id, 'width': sub_w,
-                                        'height': sub_h}
-                        data_dict['images'].append(single_image)
-                        if is_train:
-                            train_dict['images'].append(single_image)
-                        else:
-                            val_dict['images'].append(single_image)
+                        for degree in [0, 90, 180, 270] if is_train else [0]:
+                            cutout_new, sub_gt_boxes_new = rotate_image(cutout, sub_gt_boxes, degree=degree)
+                            save_prefix = '%s_%d' % (save_prefix, degree)
+                            sub_h, sub_w = cutout_new.shape[:2]
+                            single_image = {'file_name': save_prefix + '.jpg', 'id': image_id, 'width': sub_w,
+                                            'height': sub_h}
+                            data_dict['images'].append(single_image)
+                            if is_train:
+                                train_dict['images'].append(single_image)
+                            else:
+                                val_dict['images'].append(single_image)
 
-                        cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
+                            cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout_new[:, :, ::-1])  # RGB --> BGR
 
-                        save_img = True
-                        for box2 in sub_gt_boxes:
-                            xmin, ymin, xmax, ymax, label = box2
+                            save_img = True
+                            for box2 in sub_gt_boxes_new:
+                                xmin, ymin, xmax, ymax, label = box2
+
+                                if save_img:
+                                    cv2.rectangle(cutout_new, (xmin, ymin), (xmax, ymax), color=colors[label],
+                                                  thickness=3)
+
+                                xc1 = int((xmin + xmax) / 2)
+                                yc1 = int((ymin + ymax) / 2)
+                                w1 = xmax - xmin
+                                h1 = ymax - ymin
+                                # for coco format
+                                single_obj = {'area': int(w1 * h1),
+                                              'category_id': int(label),
+                                              'segmentation': []}
+                                single_obj['segmentation'].append(
+                                    [int(xmin), int(ymin), int(xmax), int(ymin),
+                                     int(xmax), int(ymax), int(xmin), int(ymax)]
+                                )
+                                single_obj['iscrowd'] = 0
+
+                                single_obj['bbox'] = int(xmin), int(ymin), int(w1), int(h1)
+                                single_obj['image_id'] = image_id
+                                single_obj['id'] = inst_count
+
+                                data_dict['annotations'].append(single_obj)
+                                if is_train:
+                                    train_dict['annotations'].append(single_obj)
+                                else:
+                                    val_dict['annotations'].append(single_obj)
+
+                                inst_count = inst_count + 1
+
+                            image_id = image_id + 1
 
                             if save_img:
-                                cv2.rectangle(cutout, (xmin, ymin), (xmax, ymax), color=colors[label],
-                                              thickness=3)
-
-                            xc1 = int((xmin + xmax) / 2)
-                            yc1 = int((ymin + ymax) / 2)
-                            w1 = xmax - xmin
-                            h1 = ymax - ymin
-                            # for coco format
-                            single_obj = {'area': int(w1 * h1),
-                                          'category_id': int(label),
-                                          'segmentation': []}
-                            single_obj['segmentation'].append(
-                                [int(xmin), int(ymin), int(xmax), int(ymin),
-                                 int(xmax), int(ymax), int(xmin), int(ymax)]
-                            )
-                            single_obj['iscrowd'] = 0
-
-                            single_obj['bbox'] = int(xmin), int(ymin), int(w1), int(h1)
-                            single_obj['image_id'] = image_id
-                            single_obj['id'] = inst_count
-
-                            data_dict['annotations'].append(single_obj)
-                            if is_train:
-                                train_dict['annotations'].append(single_obj)
-                            else:
-                                val_dict['annotations'].append(single_obj)
-
-                            inst_count = inst_count + 1
-
-                        image_id = image_id + 1
-
-                        if save_img:
-                            cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
+                                cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', cutout_new[:, :, ::-1])  # RGB --> BGR
                     # else:
                     #     # if no gt_boxes
                     #     if len(np.where(cutout[:, :, 0] > 0)[0]) < 0.5 * np.prod(cutout.shape[:2]):
@@ -1569,6 +1577,282 @@ def gen_tower_detection_dataset_v3():
         with open(save_dir + '/val.json', 'w') as f_out:
             json.dump(val_dict, f_out, indent=4)
 
+
+def gen_tower_detection_dataset_v4(aug_times=1):
+    source = 'G:/gddata/all'  # 'E:/%s_list.txt' % subset  # sys.argv[1]
+    gt_dir = 'G:/gddata/all'  # sys.argv[2]
+    bands_info_txt = "E:\\Downloads\\mc_seg\\tifs\\bands_info.txt"
+    invalid_tifs_txt = "E:\\Downloads\\mc_seg\\tifs\\invalid_tifs.txt"
+
+    save_dir = 'E:/Downloads/tower_detection_v4_augtimes%d/' % aug_times
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    valid_labels_set = [3, 4]
+    label_maps = {
+        3: 'tower',
+        4: 'insulator'
+    }
+    bands_info = []
+    if os.path.exists(bands_info_txt):
+        with open(bands_info_txt, 'r', encoding='utf-8-sig') as fp:
+            bands_info = [line.strip() for line in fp.readlines()]
+    invalid_tifs = []
+    if os.path.exists(invalid_tifs_txt):
+        with open(invalid_tifs_txt, 'r', encoding='utf-8-sig') as fp:
+            invalid_tifs = [line.strip() for line in fp.readlines()]
+
+    save_img_path = '%s/images/' % save_dir
+    save_img_shown_path = '%s/images_shown/' % save_dir
+    for p in [save_img_path, save_img_shown_path]:
+        if not os.path.exists(p):
+            os.makedirs(p)
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    data_dict = {'images': [], 'categories': [], 'annotations': []}
+    train_dict = {'images': [], 'categories': [], 'annotations': []}
+    val_dict = {'images': [], 'categories': [], 'annotations': []}
+    for idx, name in enumerate(["tower0", "tower1", "tower", "insulator"]):  # 1,2,3 is gan, 4 is jueyuanzi
+        single_cat = {'id': idx + 1, 'name': name, 'supercategory': name}
+        data_dict['categories'].append(single_cat)
+        train_dict['categories'].append(single_cat)
+        val_dict['categories'].append(single_cat)
+
+    inst_count = 1
+    image_id = 1
+
+    colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
+
+    subsizes = [1024]
+    scales = [1.0]
+    gaps = [256]  # [256]
+
+    for ti in range(len(tiffiles)):
+        tiffile = tiffiles[ti]
+        file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+        if 'Original' in file_prefix or file_prefix in invalid_tifs:
+            continue
+
+        print(ti, '=' * 80)
+        print(file_prefix)
+
+        ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+        print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                     ds.GetDriver().LongName))
+        print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                            ds.RasterYSize,
+                                            ds.RasterCount))
+        print("Projection is {}".format(ds.GetProjection()))
+        projection = ds.GetProjection()
+        projection_sr = osr.SpatialReference(wkt=projection)
+        projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+        geotransform = ds.GetGeoTransform()
+        xOrigin = geotransform[0]
+        yOrigin = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+        if geotransform:
+            print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+            print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+            print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+
+        print('loading gt ...')
+        gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
+
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+                                                    valid_labels=valid_labels_set)
+
+        if len(gt_boxes) == 0:
+            continue
+
+        for si, (subsize, scale) in enumerate(zip(subsizes, scales)):
+
+            for gap in gaps:
+                offsets = compute_offsets(height=orig_height, width=orig_width, subsize=subsize, gap=gap)
+
+                for oi, (xoffset0, yoffset0, sub_w0, sub_h0) in enumerate(offsets):  # left, up
+                    # sub_width = min(orig_width, big_subsize)
+                    # sub_height = min(orig_height, big_subsize)
+                    # if xoffset + sub_width > orig_width:
+                    #     sub_width = orig_width - xoffset
+                    # if yoffset + sub_height > orig_height:
+                    #     sub_height = orig_height - yoffset
+                    if np.random.rand() < 0.8:
+                        is_train = True
+                    else:
+                        is_train = False
+
+                    print(oi, len(offsets), xoffset0, yoffset0, sub_w0, sub_h0)
+
+                    for aug_time in range(aug_times) if is_train else [0]:
+                        xoffset, yoffset, sub_w, sub_h = xoffset0, yoffset0, sub_w0, sub_h0
+                        save_prefix = '%d_%d_%d_%d_%d' % (ti, si, oi, gap, aug_time)
+                        if aug_time > 0:
+                            xoffset += np.random.randint(-0.2*sub_w, 0.2*sub_w)
+                            yoffset += np.random.randint(-0.2*sub_h, 0.2*sub_h)
+
+                        xoffset = max(1, xoffset)
+                        yoffset = max(1, yoffset)
+                        if xoffset + sub_w > orig_width - 1:
+                            sub_w = orig_width - 1 - xoffset
+                        if yoffset + sub_h > orig_height - 1:
+                            sub_h = orig_height - 1 - yoffset
+
+                        if sub_w < 512 or sub_h < 512:
+                            continue
+
+                        xoffset, yoffset, sub_w, sub_h = [int(val) for val in
+                                                          [xoffset, yoffset, sub_w, sub_h]]
+                        xmin1, ymin1 = xoffset, yoffset
+                        xmax1, ymax1 = xoffset + sub_w, yoffset + sub_h
+
+                        cutout = []
+                        for bi in [0, 1, 2] if file_prefix not in bands_info else [2, 1, 0]:
+                            band = ds.GetRasterBand(bi + 1)
+                            band_data = band.ReadAsArray(xoffset, yoffset, win_xsize=sub_w, win_ysize=sub_h)
+                            cutout.append(band_data)
+                        cutout = np.stack(cutout, -1)  # RGB
+
+                        if np.min(cutout[:, :, 0]) == np.max(cutout[:, :, 0]):
+                            continue
+
+                        # here, the sub_image box is [xoffset, yoffset, xoffset + sub_w, yoffset + sub_h]
+                        # find all gt_boxes in this sub-rectangle
+                        # 查找gtboxes里面，与当前框有交集的框
+                        # idx1 = np.where(gt_labels >= 2)[0]
+                        # boxes = gt_boxes[idx1, :]  # 得到框
+                        # labels = gt_labels[idx1]
+                        boxes = np.copy(gt_boxes)
+                        labels = np.copy(gt_labels)
+
+                        ious = box_iou_np(np.array([xmin1, ymin1, xmax1, ymax1], dtype=np.float32).reshape(-1, 4), boxes)
+                        idx2 = np.where(ious > 1e-8)[1]
+                        sub_gt_boxes = []
+                        invalid_gt_boxes = []
+                        if len(idx2) > 0:
+                            valid_boxes = boxes[idx2, :]
+                            valid_labels = labels[idx2]
+                            valid_boxes[:, [0, 2]] -= xmin1
+                            valid_boxes[:, [1, 3]] -= ymin1
+                            for box1, label1 in zip(valid_boxes.astype(np.int32), valid_labels):
+                                xmin, ymin, xmax, ymax = box1
+                                xmin1 = max(1, xmin)
+                                ymin1 = max(1, ymin)
+                                xmax1 = min(xmax, sub_w - 1)
+                                ymax1 = min(ymax, sub_h - 1)
+
+                                # here, check the new gt_box[xmin1, ymin1, xmax1, ymax1]
+                                # if the area of new gt_box is less than 0.6 of the original box, then remove this box and
+                                # record its position, to put it to zero in the image
+                                area1 = (xmax1 - xmin1) * (ymax1 - ymin1)
+                                area = (xmax - xmin) * (ymax - ymin)
+                                if area1 >= 0.6 * area:
+                                    sub_gt_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
+                                else:
+                                    invalid_gt_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
+
+                        # if len(np.where(im1[:, :, 0] > 0)[0]) < 0.5 * np.prod(im1.shape[:2]):
+                        #     continue
+
+                        if len(invalid_gt_boxes) > 0:
+                            for box2 in np.array(invalid_gt_boxes).astype(np.int32):
+                                xmin, ymin, xmax, ymax, label = box2
+                                cutout[ymin:ymax, xmin:xmax, :] = 0
+
+                                # check the sub_gt_boxes, remove those boxes where in invalid_gt_boxes
+                                if len(sub_gt_boxes) > 0:
+                                    ious = box_iou_np(box2[:4].reshape(1, 4),
+                                                      np.array(sub_gt_boxes, dtype=np.float32).reshape(-1, 5)[:, :4])
+                                    idx2 = np.where(ious > 0)[1]
+                                    if len(idx2) > 0:
+                                        sub_gt_boxes = [box3 for ii, box3 in enumerate(sub_gt_boxes) if
+                                                        ii not in idx2.tolist()]
+
+                        if len(sub_gt_boxes) > 0:
+
+                            for degree in [0, 90, 180, 270] if is_train else [0]:
+                                cutout_new, sub_gt_boxes_new = rotate_image(cutout, sub_gt_boxes, degree=degree)
+                                save_prefix = '%s_%d' % (save_prefix, degree)
+                                sub_h, sub_w = cutout_new.shape[:2]
+                                single_image = {'file_name': save_prefix + '.jpg', 'id': image_id, 'width': sub_w,
+                                                'height': sub_h}
+                                data_dict['images'].append(single_image)
+                                if is_train:
+                                    train_dict['images'].append(single_image)
+                                else:
+                                    val_dict['images'].append(single_image)
+
+                                cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout_new[:, :, ::-1])  # RGB --> BGR
+
+                                save_img = True
+                                for box2 in sub_gt_boxes_new:
+                                    xmin, ymin, xmax, ymax, label = box2
+
+                                    if save_img:
+                                        cv2.rectangle(cutout_new, (xmin, ymin), (xmax, ymax), color=colors[label],
+                                                      thickness=3)
+
+                                    xc1 = int((xmin + xmax) / 2)
+                                    yc1 = int((ymin + ymax) / 2)
+                                    w1 = xmax - xmin
+                                    h1 = ymax - ymin
+                                    # for coco format
+                                    single_obj = {'area': int(w1 * h1),
+                                                  'category_id': int(label),
+                                                  'segmentation': []}
+                                    single_obj['segmentation'].append(
+                                        [int(xmin), int(ymin), int(xmax), int(ymin),
+                                         int(xmax), int(ymax), int(xmin), int(ymax)]
+                                    )
+                                    single_obj['iscrowd'] = 0
+
+                                    single_obj['bbox'] = int(xmin), int(ymin), int(w1), int(h1)
+                                    single_obj['image_id'] = image_id
+                                    single_obj['id'] = inst_count
+
+                                    data_dict['annotations'].append(single_obj)
+                                    if is_train:
+                                        train_dict['annotations'].append(single_obj)
+                                    else:
+                                        val_dict['annotations'].append(single_obj)
+
+                                    inst_count = inst_count + 1
+
+                                image_id = image_id + 1
+
+                                if save_img:
+                                    cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', cutout_new[:, :, ::-1])  # RGB --> BGR
+                        # else:
+                        #     # if no gt_boxes
+                        #     if len(np.where(cutout[:, :, 0] > 0)[0]) < 0.5 * np.prod(cutout.shape[:2]):
+                        #         continue
+                        #
+                        #     if np.random.rand() < 0.1:
+                        #         # for yolo format
+                        #         save_prefix = save_prefix + '_noGT'
+                        #         cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
+
+                        # im = im[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+                        # im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32
+                        # im /= 255.0  # 0 - 255 to 0.0 - 1.0
+                        # ims.append(im)
+
+    if inst_count > 1:
+        with open(save_dir + '/all.json', 'w') as f_out:
+            json.dump(data_dict, f_out, indent=4)
+        with open(save_dir + '/train.json', 'w') as f_out:
+            json.dump(train_dict, f_out, indent=4)
+        with open(save_dir + '/val.json', 'w') as f_out:
+            json.dump(val_dict, f_out, indent=4)
 
 
 # using predefined split train and val set
@@ -2333,6 +2617,56 @@ def split_train_val_set():
             pass
 
 
+def rotate_image(im, boxes, degree=0):
+    # degree should be 90, 180, 270
+    if degree == 0:
+        return im, boxes
+
+    if degree == 90:
+        im_new = np.rot90(im, k=1).copy()
+    elif degree == 180:
+        im_new = np.rot90(im, k=2).copy()
+    elif degree == 270:
+        im_new = np.rot90(im, k=3).copy()
+    else:
+        im_new = im.copy()
+
+    new_boxes = []
+    H, W = im.shape[:2]
+    for box in boxes:
+        x1, y1, x2, y2 = [box[i] for i in range(4)]
+        if degree == 90:
+            new_boxes.append([y1, W-x2, y2, W-x1] + box[4:])
+        elif degree == 180:
+            new_boxes.append([W-x2, H-y2, W-x1, H-y1] + box[4:])
+        elif degree == 270:
+            new_boxes.append([H-y2, x1, H-y1, x2] + box[4:])
+        else:
+            new_boxes.append(box)
+    return im_new, new_boxes
+
+
+def plot_boxes(im, boxes):
+    im = im.copy()
+    for box in boxes:
+        x1, y1, x2, y2 = [box[i] for i in range(4)]
+        cv2.rectangle(im, (x1, y1), (x2, y2), color=(255, 255, 255), thickness=2)
+        cv2.circle(im, center=(x1, y1), radius=3, color=(0, 0, 255), thickness=2)
+    return im
+
+
+def test_rotation():
+    save_dir = "E:/"
+    im = np.zeros((200, 100, 3), dtype=np.uint8)
+    im[0:10, 0:10, :] = 255
+    boxes = np.array([[10, 20, 50, 60, 1]])
+    cv2.imwrite(os.path.join(save_dir, 'degree-0.png'), plot_boxes(im, boxes))
+
+    for degree in [0, 90, 180, 270]:
+        im_new, boxes_new = rotate_image(im, boxes, degree=degree)
+        cv2.imwrite(os.path.join(save_dir, 'degree-%d.png' % degree), plot_boxes(im_new, boxes_new))
+
+
 if __name__ == '__main__':
     action = sys.argv[1]
     print(action)
@@ -2361,6 +2695,8 @@ if __name__ == '__main__':
         gen_tower_detection_dataset()
     elif action == 'gen_tower_detection_dataset_v3':
         gen_tower_detection_dataset_v3()
+    elif action == 'gen_tower_detection_dataset_v4':
+        gen_tower_detection_dataset_v4(aug_times=5)
     elif action == 'gen_tower_detection_dataset_v2':
         gen_tower_detection_dataset_v2(subset='train')
         gen_tower_detection_dataset_v2(subset='val')
@@ -2372,3 +2708,5 @@ if __name__ == '__main__':
         test_multiclass_dice()
     elif action == 'split_train_val_set':
         split_train_val_set()
+    elif action == 'test_rotation':
+        test_rotation()
