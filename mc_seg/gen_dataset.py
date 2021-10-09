@@ -1365,8 +1365,8 @@ def gen_tower_detection_dataset_v3():
             continue
 
         gt_boxes1 = np.copy(gt_boxes)
-        xmin, ymin = np.min(gt_boxes1[0:2], axis=0)
-        xmax, ymax = np.max(gt_boxes1[2:4], axis=0)
+        xmin, ymin = np.min(gt_boxes1[:, 0:2], axis=0)
+        xmax, ymax = np.max(gt_boxes1[:, 2:4], axis=0)
         w, h = xmax - xmin, ymax - ymin
 
         box_centers = []
@@ -2303,8 +2303,8 @@ def split_train_val_set():
             continue
 
         gt_boxes1 = np.copy(gt_boxes)
-        xmin, ymin = np.min(gt_boxes1[0:2], axis=0)
-        xmax, ymax = np.max(gt_boxes1[2:4], axis=0)
+        xmin, ymin = np.min(gt_boxes1[:, 0:2], axis=0)
+        xmax, ymax = np.max(gt_boxes1[:, 2:4], axis=0)
         w, h = xmax - xmin, ymax - ymin
 
         box_centers = []

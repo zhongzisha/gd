@@ -22,31 +22,42 @@ import itertools
 import sklearn
 from sklearn.cluster import KMeans
 
+
+DEBUG = False
+
+
 if os.name == 'nt':
     im0_filepath = 'E:/Downloads/BData/images_with_alpha/038_aug_0.png'
     im1_filepath = 'E:/Downloads/BData/images_with_alpha/038_aug_1.png'
     colors_images_dir = 'E:/Downloads/BData/insulator_colors'
+    colors_images_centers_filename = 'E:/Downloads/BData/insulator_colors/color_centers.npy'
 else:
     im0_filepath = '/media/ubuntu/Data/insulator/BData/images_with_alpha/038_aug_0.png'
     im1_filepath = '/media/ubuntu/Data/insulator/BData/images_with_alpha/038_aug_1.png'
     colors_images_dir = '/media/ubuntu/Data/insulator/BData/insulator_colors'
+    colors_images_centers_filename = '/media/ubuntu/Data/insulator/BData/insulator_colors/color_centers.npy'
 
-colors_images = [cv2.imread(filename, cv2.IMREAD_UNCHANGED)
-                 for filename in glob.glob(os.path.join(colors_images_dir, '*.png'))]
-COLOR_CENTERS = []
-n_clusters = 20
-for im in colors_images:
-    print(im.shape)
-    cluster = KMeans(n_clusters=n_clusters)
-    cluster.fit(im.reshape(-1, 3))
-    print('cluster centers: ', cluster.cluster_centers_)
-    new_cluster = []
-    for center in cluster.cluster_centers_:
-        if np.any(center < 240):
-            new_cluster.append(center)
-    COLOR_CENTERS.append(np.array(new_cluster))
-    print(cluster.labels_.shape)
-print(COLOR_CENTERS)
+if os.path.exists(colors_images_centers_filename):
+    COLOR_CENTERS = np.load(colors_images_centers_filename, allow_pickle=True)
+else:
+    colors_images = [cv2.imread(filename, cv2.IMREAD_UNCHANGED)
+                     for filename in glob.glob(os.path.join(colors_images_dir, '*.png'))]
+    COLOR_CENTERS = []
+    n_clusters = 20
+    for im in colors_images:
+        print(im.shape)
+        cluster = KMeans(n_clusters=n_clusters)
+        cluster.fit(im.reshape(-1, 3))
+        print('cluster centers: ', cluster.cluster_centers_)
+        new_cluster = []
+        for center in cluster.cluster_centers_:
+            if np.any(center < 240):
+                new_cluster.append(center)
+        COLOR_CENTERS.append(np.array(new_cluster))
+        print(cluster.labels_.shape)
+    COLOR_CENTERS = np.array(COLOR_CENTERS)
+    print(COLOR_CENTERS)
+    np.save(colors_images_centers_filename, COLOR_CENTERS, allow_pickle=True)
 
 
 def generate_insulator_fg_images(count, debug=False):
@@ -189,8 +200,9 @@ def generate_insulator_fg_images(count, debug=False):
     return fg_images, fg_boxes
 
 
-def add_line(im, mask, p0s, p1s):
+def add_line(im, p0s, p1s):
     line_width = np.random.randint(1, 3)
+    mask = np.zeros(im.shape[:2], dtype=np.uint8)
     for p0, p1 in zip(p0s, p1s):
 
         d = np.sqrt((p0[0] - p1[0]) ** 2 + (p0[1] - p1[1]) ** 2)
@@ -207,7 +219,7 @@ def add_line(im, mask, p0s, p1s):
     return im, mask
 
 
-def paste_fg_images_to_bg(im, mask, mask_k, all_fg_images, all_fg_boxes, count=10):
+def paste_fg_images_to_bg(im, mask, mask_k, all_fg_images, all_fg_boxes, count=10, short_side_min_len=20):
     im = im.copy()
     mask = mask.copy()
     mask2 = mask.copy()
@@ -227,7 +239,7 @@ def paste_fg_images_to_bg(im, mask, mask_k, all_fg_images, all_fg_boxes, count=1
         fg_ind = np.random.randint(len(all_fg_images))
         fg = all_fg_images[fg_ind]
         fg_boxes = all_fg_boxes[fg_ind]
-        scale_h = np.random.randint(20, 30) / 200.
+        scale_h = np.random.randint(short_side_min_len, 1.5 * short_side_min_len) / 200.
         scale_w = scale_h * np.random.randint(70, 90) / 100.
         fg = cv2.resize(fg, dsize=None, fx=scale_w, fy=scale_h, interpolation=cv2.INTER_NEAREST)
         h, w = fg.shape[:2]
@@ -266,17 +278,35 @@ def paste_fg_images_to_bg(im, mask, mask_k, all_fg_images, all_fg_boxes, count=1
         angle = mask_k[cy, cx]
         print('cx, cy, angle, scale_w, scale_h, h, w', cx, cy, type(cx), type(cy), angle, np.degrees(angle), scale_w,
               scale_h, h, w)
-        # rotate our image by 45 degrees around the center of the image
-        M = cv2.getRotationMatrix2D((w // 2, h // 2), np.degrees(angle), 1.0)
-        print('M', M)
-        print('fg', fg.shape)
-        cos, sin = np.abs(M[0, 0]), np.abs(M[0, 1])
-        nW, nH = int((h * sin) + (w * cos)), int((h * cos) + (w * sin))
-        M[0, 2] += (nW / 2) - w // 2
-        M[1, 2] += (nH / 2) - h // 2
-        fg = cv2.warpAffine(fg, M, (nW, nH), flags=cv2.INTER_NEAREST)
+
+        if DEBUG:
+            if os.path.exists("E:/fg_0.png"):
+                os.remove("E:/fg_0.png")
+            cv2.imwrite('E:/fg_0.png', fg)
+
+        if False:
+            # rotate our image by 45 degrees around the center of the image
+            if w > h:
+                angle = np.pi/2 + angle
+            M = cv2.getRotationMatrix2D((w // 2, h // 2), np.degrees(angle), 1.0)
+            print('M', M)
+            print('fg', fg.shape)
+            cos, sin = np.abs(M[0, 0]), np.abs(M[0, 1])
+            nW, nH = int((h * sin) + (w * cos)), int((h * cos) + (w * sin))
+            M[0, 2] += (nW / 2) - w // 2
+            M[1, 2] += (nH / 2) - h // 2
+            fg = cv2.warpAffine(fg, M, (nW, nH), flags=cv2.INTER_NEAREST)
+        else:
+            fg = np.array(Image.fromarray(fg).convert('RGBA').rotate(np.degrees(angle), expand=True))
 
         h1, w1 = fg.shape[:2]
+
+        if DEBUG:
+            if os.path.exists("E:/fg_1.png"):
+                os.remove("E:/fg_1.png")
+            cv2.imwrite('E:/fg_1.png', fg)
+            import pdb
+            pdb.set_trace()
 
         print('rotate boxes...')
         fg_boxes_new = []
@@ -285,7 +315,10 @@ def paste_fg_images_to_bg(im, mask, mask_k, all_fg_images, all_fg_boxes, count=1
             x1, y1, x2, y2, box_label = box
             box_im = np.zeros((h, w), dtype=np.uint8)
             box_im[y1:y2, x1:x2] = 128
-            box_im_new = cv2.warpAffine(box_im, M, (nW, nH), flags=cv2.INTER_NEAREST)
+            if False:
+                box_im_new = cv2.warpAffine(box_im, M, (nW, nH), flags=cv2.INTER_NEAREST)
+            else:
+                box_im_new = np.array(Image.fromarray(box_im).rotate(np.degrees(angle), expand=True))
             points = np.stack(np.where(box_im_new == 128), axis=1)
             y1, x1 = np.min(points, axis=0)
             y2, x2 = np.max(points, axis=0)
@@ -318,6 +351,7 @@ def paste_fg_images_to_bg(im, mask, mask_k, all_fg_images, all_fg_boxes, count=1
         ksize = np.random.choice([3, 5, 7, 9])
         sigmaX = np.random.choice([0.1, 1, 10])
         bgr = cv2.GaussianBlur(bgr, ksize=(ksize, ksize), sigmaX=sigmaX)
+        alpha = cv2.GaussianBlur(alpha, ksize=(3, 3), sigmaX=sigmaX)
 
         # alpha = cv2.resize(alpha, (w, h), interpolation=cv2.INTER_NEAREST)
         # print(bgr.shape, alpha.shape)
@@ -366,7 +400,8 @@ def paste_fg_images_to_bg(im, mask, mask_k, all_fg_images, all_fg_boxes, count=1
     return im, im_com, im_blend, mask, boxes, boxes_mask
 
 
-def add_line_to_image(im, crop_width=0, crop_height=0, subset='train', add_insulators=False):
+def add_line_to_image(im, crop_width=0, crop_height=0, subset='train', add_insulators=False,
+                      short_side_min_len=20):
     # extract sub image from im and add line to the image
     # return the croppped image and its line mask
     H, W = im.shape[:2]
@@ -388,6 +423,7 @@ def add_line_to_image(im, crop_width=0, crop_height=0, subset='train', add_insul
     mask = np.zeros((H, W), dtype=np.uint8)
     mask_k = np.zeros((H, W), dtype=np.float32)
     total_line_count = np.random.randint(2, 5) if 'train' in subset else 1
+    if DEBUG: total_line_count = 1
     for step in range(total_line_count):
         y = np.random.randint(0, H - 1, size=2)
         x = np.random.randint(0, W - 1, size=2)
@@ -408,8 +444,9 @@ def add_line_to_image(im, crop_width=0, crop_height=0, subset='train', add_insul
                 p0s.append((x1_r, 0))
                 p1s.append((x1_r, H - 1))
 
-            im_sub, mask = add_line(im_sub, mask, p0s, p1s)
-            mask_k[mask > 0] = np.pi / 4
+            im_sub, mask1 = add_line(im_sub, p0s, p1s)
+            mask[mask1 > 0] = 1
+            mask_k[mask1 > 0] = np.pi / 2
         elif abs(y1 - y2) == 1 and (20 < y1 < H - 20):
             expand = np.random.randint(low=10, high=y1 - 9, size=2)
             y1_u = y1 - expand[0]
@@ -424,8 +461,9 @@ def add_line_to_image(im, crop_width=0, crop_height=0, subset='train', add_insul
                 p0s.append((0, y1_b))
                 p1s.append((W - 1, y1_b))
 
-            im_sub, mask = add_line(im_sub, mask, p0s, p1s)
-            mask_k[mask > 0] = 0
+            im_sub, mask1 = add_line(im_sub, p0s, p1s)
+            mask[mask1 > 0] = 1
+            mask_k[mask1 > 0] = 0
         elif abs(x1 - x2) > 10 and abs(y1 - y2) > 10:
             k = (y1 - y2) / (x2 - x1)
             b = - k * x1 - y1
@@ -437,13 +475,16 @@ def add_line_to_image(im, crop_width=0, crop_height=0, subset='train', add_insul
                 # y=3, y=H-3
                 p0s = [(int((-3 - bb) / k), 3) for bb in [b, b_up, b_down]]
                 p1s = [(int((-H + 3 - bb) / k), H - 3) for bb in [b, b_up, b_down]]
-                im_sub, mask = add_line(im_sub, mask, p0s, p1s)
+                im_sub, mask1 = add_line(im_sub, p0s, p1s)
             elif 1 >= abs(k) > 0.05:
                 # x=3, x=W-3
                 p0s = [(3, int(-k * 3 - bb)) for bb in [b, b_up, b_down]]
                 p1s = [(W - 3, int(-k * (W - 3) - bb)) for bb in [b, b_up, b_down]]
-                im_sub, mask = add_line(im_sub, mask, p0s, p1s)
-            mask_k[mask > 0] = np.arctan(k)
+                im_sub, mask1 = add_line(im_sub, p0s, p1s)
+            else:
+                mask1 = np.zeros(im_sub.shape[:2], dtype=np.uint8)
+            mask[mask1 > 0] = 1
+            mask_k[mask1 > 0] = np.arctan(k)
 
     # blur the image
     prob = np.random.rand()
@@ -474,6 +515,7 @@ def add_line_to_image(im, crop_width=0, crop_height=0, subset='train', add_insul
     if add_insulators:
         total_count = np.random.randint(20, 30) if 'train' in subset else 5
         fg_count = np.random.randint(low=2, high=5) if 'train' in subset else np.random.randint(low=2, high=3)
+        if DEBUG: fg_count = 1
         # while True:
         #     random_filenames = np.random.choice(foreign_fg_filenames,
         #                                         size=total_count,
@@ -496,7 +538,8 @@ def add_line_to_image(im, crop_width=0, crop_height=0, subset='train', add_insul
         print('num_fg_images: ', len(all_fg_images))
         # paste the fg_image to im_sub
         im_sub1, im_sub1_com, im_sub1_blend, mask1, boxes1, boxes1_mask = \
-            paste_fg_images_to_bg(im_sub, mask, mask_k, all_fg_images, all_fg_boxes, fg_count)
+            paste_fg_images_to_bg(im_sub, mask, mask_k, all_fg_images, all_fg_boxes,
+                                  fg_count, short_side_min_len=short_side_min_len)
 
         mask2 = mask.copy()
         mask2[np.where(boxes1_mask)] = 2
@@ -510,7 +553,7 @@ def refine_line_aug(subset='train', aug_times=1, save_root=None,
                     crop_height=512, crop_width=512,
                     fg_images_filename=None, fg_boxes_filename=None,
                     bg_images_dir=None, random_count=1000,
-                    add_insulators=True):
+                    add_insulators=True, short_side_min_len=20):
     save_dir = '%s/%s/' % (save_root, subset)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
@@ -538,6 +581,8 @@ def refine_line_aug(subset='train', aug_times=1, save_root=None,
     image_id = 1
     palette = np.array([[0, 0, 0], [255, 255, 255], [255, 255, 0], [0, 255, 255], [0, 0, 255]])
 
+    if DEBUG: random_count = 1
+
     lines = []
     for aug_time in range(aug_times):
         if len(bg_filenames) > random_count:
@@ -555,7 +600,8 @@ def refine_line_aug(subset='train', aug_times=1, save_root=None,
                 continue
 
             im1, mask1, mask2, boxes1 = add_line_to_image(bg, crop_height, crop_width, subset=subset,
-                                                          add_insulators=add_insulators)
+                                                          add_insulators=add_insulators,
+                                                          short_side_min_len=short_side_min_len)
 
             if im1 is None:
                 continue
@@ -625,7 +671,7 @@ def refine_line_aug(subset='train', aug_times=1, save_root=None,
             json.dump(data_dict, f_out, indent=4)
 
 
-def process_one(bg_ind, bg_filenames, subset, add_insulators, aug_time, images_root, labels_root,
+def process_one(bg_ind, bg_filenames, subset, add_insulators, short_side_min_len, aug_time, images_root, labels_root,
                 labels_with_insulators_root, images_shown_root):
     bg_filename = bg_filenames[bg_ind]
     file_prefix = bg_filename.split(os.sep)[-1].replace('.png', '')
@@ -636,7 +682,8 @@ def process_one(bg_ind, bg_filenames, subset, add_insulators, aug_time, images_r
         return None, None, None
 
     im1, mask1, mask2, boxes1 = add_line_to_image(bg, crop_height=0, crop_width=0, subset=subset,
-                                                  add_insulators=add_insulators)
+                                                  add_insulators=add_insulators,
+                                                  short_side_min_len=short_side_min_len)
 
     if im1 is None:
         return None, None, None
@@ -667,7 +714,7 @@ def refine_line_aug_parallel(subset='train', aug_times=1, save_root=None,
                              crop_height=512, crop_width=512,
                              fg_images_filename=None, fg_boxes_filename=None,
                              bg_images_dir=None, random_count=1000,
-                             add_insulators=True):
+                             add_insulators=True, short_side_min_len=20):
     save_dir = '%s/%s/' % (save_root, subset)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
@@ -706,6 +753,7 @@ def refine_line_aug_parallel(subset='train', aug_times=1, save_root=None,
             itertools.repeat(bg_filenames),
             itertools.repeat(subset),
             itertools.repeat(add_insulators),
+            itertools.repeat(short_side_min_len),
             itertools.repeat(aug_time),
             itertools.repeat(images_root),
             itertools.repeat(labels_root),
@@ -810,19 +858,20 @@ if __name__ == '__main__':
     # sys.exit(-1)
 
     if os.name == 'nt':
+        short_side_min_len = int(sys.argv[1])
         bg_images_dir = 'D:/train1_bg_images/'
-        save_root = 'E:/insulator_detection/augmented_data_v2_colored/'
+        save_root = 'E:/insulator_detection/augmented_data_v2_colored_%d/' % short_side_min_len
         refine_line_aug(subset='train', aug_times=1, save_root=save_root,
                                  crop_height=0, crop_width=0,
                                  fg_images_filename=None, fg_boxes_filename=None,
                                  bg_images_dir=bg_images_dir, random_count=2000,
-                                 add_insulators=True)
-        bg_images_dir = 'D:/val1_bg_images/'
+                                 add_insulators=True, short_side_min_len=short_side_min_len)
+        # bg_images_dir = 'D:/val1_bg_images/'
         refine_line_aug(subset='val', aug_times=1, save_root=save_root,
                         crop_height=0, crop_width=0,
                         fg_images_filename=None, fg_boxes_filename=None,
                         bg_images_dir=bg_images_dir, random_count=500,
-                        add_insulators=True)
+                        add_insulators=True, short_side_min_len=short_side_min_len)
     else:
 
         bg_images_dir = '/media/ubuntu/Data/gd_cached_path/train1_bg_images/'
