@@ -1578,15 +1578,24 @@ def gen_tower_detection_dataset_v3():
             json.dump(val_dict, f_out, indent=4)
 
 
-def gen_tower_detection_dataset_v4(aug_times=1):
-    source = 'G:/gddata/all'  # 'E:/%s_list.txt' % subset  # sys.argv[1]
+def gen_tower_detection_dataset_v4(aug_times=1, subset=None):
+    if subset is None:
+        source = 'G:/gddata/all'  # 'E:/%s_list.txt' % subset  # sys.argv[1]
+    else:
+        source = 'E:/Downloads/tower_detection/%s_list.txt' % subset  # sys.argv[1]
     gt_dir = 'G:/gddata/all'  # sys.argv[2]
     bands_info_txt = "E:\\Downloads\\mc_seg\\tifs\\bands_info.txt"
     invalid_tifs_txt = "E:\\Downloads\\mc_seg\\tifs\\invalid_tifs.txt"
 
-    save_dir = 'E:/Downloads/tower_detection_v4_augtimes%d/' % aug_times
+    if subset is None:
+        save_dir = 'E:/Downloads/tower_detection/v4_augtimes%d/' % aug_times
+    else:
+        save_dir = 'E:/Downloads/tower_detection/v4_augtimes%d/%s' % (aug_times, subset)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
+
+    if os.path.isfile(source):
+        shutil.copy(source, os.path.join(save_dir, os.path.basename(source)))
 
     valid_labels_set = [3, 4]
     label_maps = {
@@ -1617,13 +1626,16 @@ def gen_tower_detection_dataset_v4(aug_times=1):
     print(tiffiles)
 
     data_dict = {'images': [], 'categories': [], 'annotations': []}
-    train_dict = {'images': [], 'categories': [], 'annotations': []}
-    val_dict = {'images': [], 'categories': [], 'annotations': []}
+    train_dict, val_dict = None, None
+    if subset is None:
+        train_dict = {'images': [], 'categories': [], 'annotations': []}
+        val_dict = {'images': [], 'categories': [], 'annotations': []}
     for idx, name in enumerate(["tower0", "tower1", "tower", "insulator"]):  # 1,2,3 is gan, 4 is jueyuanzi
         single_cat = {'id': idx + 1, 'name': name, 'supercategory': name}
         data_dict['categories'].append(single_cat)
-        train_dict['categories'].append(single_cat)
-        val_dict['categories'].append(single_cat)
+        if subset is None:
+            train_dict['categories'].append(single_cat)
+            val_dict['categories'].append(single_cat)
 
     inst_count = 1
     image_id = 1
@@ -1636,6 +1648,10 @@ def gen_tower_detection_dataset_v4(aug_times=1):
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
+
+        if not os.path.exists(tiffile):
+            continue
+
         file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
         if 'Original' in file_prefix or file_prefix in invalid_tifs:
             continue
@@ -1674,6 +1690,13 @@ def gen_tower_detection_dataset_v4(aug_times=1):
         if len(gt_boxes) == 0:
             continue
 
+        is_train = True
+        if subset is not None:
+            if 'train' in subset:
+                is_train = True
+            else:
+                is_train = False
+
         for si, (subsize, scale) in enumerate(zip(subsizes, scales)):
 
             for gap in gaps:
@@ -1686,10 +1709,11 @@ def gen_tower_detection_dataset_v4(aug_times=1):
                     #     sub_width = orig_width - xoffset
                     # if yoffset + sub_height > orig_height:
                     #     sub_height = orig_height - yoffset
-                    if np.random.rand() < 0.8:
-                        is_train = True
-                    else:
-                        is_train = False
+                    if subset is None:
+                        if np.random.rand() < 0.8:
+                            is_train = True
+                        else:
+                            is_train = False
 
                     print(oi, len(offsets), xoffset0, yoffset0, sub_w0, sub_h0)
 
@@ -1780,16 +1804,18 @@ def gen_tower_detection_dataset_v4(aug_times=1):
                         if len(sub_gt_boxes) > 0:
 
                             for degree in [0, 90, 180, 270] if is_train else [0]:
-                                cutout_new, sub_gt_boxes_new = rotate_image(cutout, sub_gt_boxes, degree=degree)
+                                cutout_new, sub_gt_boxes_new = rotate_image(cutout.copy(), sub_gt_boxes, degree=degree)
                                 save_prefix = '%s_%d' % (save_prefix, degree)
                                 sub_h, sub_w = cutout_new.shape[:2]
                                 single_image = {'file_name': save_prefix + '.jpg', 'id': image_id, 'width': sub_w,
                                                 'height': sub_h}
                                 data_dict['images'].append(single_image)
-                                if is_train:
-                                    train_dict['images'].append(single_image)
-                                else:
-                                    val_dict['images'].append(single_image)
+
+                                if subset is None:
+                                    if is_train:
+                                        train_dict['images'].append(single_image)
+                                    else:
+                                        val_dict['images'].append(single_image)
 
                                 cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout_new[:, :, ::-1])  # RGB --> BGR
 
@@ -1820,10 +1846,12 @@ def gen_tower_detection_dataset_v4(aug_times=1):
                                     single_obj['id'] = inst_count
 
                                     data_dict['annotations'].append(single_obj)
-                                    if is_train:
-                                        train_dict['annotations'].append(single_obj)
-                                    else:
-                                        val_dict['annotations'].append(single_obj)
+
+                                    if subset is None:
+                                        if is_train:
+                                            train_dict['annotations'].append(single_obj)
+                                        else:
+                                            val_dict['annotations'].append(single_obj)
 
                                     inst_count = inst_count + 1
 
@@ -1847,12 +1875,16 @@ def gen_tower_detection_dataset_v4(aug_times=1):
                         # ims.append(im)
 
     if inst_count > 1:
-        with open(save_dir + '/all.json', 'w') as f_out:
-            json.dump(data_dict, f_out, indent=4)
-        with open(save_dir + '/train.json', 'w') as f_out:
-            json.dump(train_dict, f_out, indent=4)
-        with open(save_dir + '/val.json', 'w') as f_out:
-            json.dump(val_dict, f_out, indent=4)
+        if subset is None:
+            with open(save_dir + '/all.json', 'w') as f_out:
+                json.dump(data_dict, f_out, indent=4)
+            with open(save_dir + '/train.json', 'w') as f_out:
+                json.dump(train_dict, f_out, indent=4)
+            with open(save_dir + '/val.json', 'w') as f_out:
+                json.dump(val_dict, f_out, indent=4)
+        else:
+            with open(save_dir + '/%s.json' % subset, 'w') as f_out:
+                json.dump(data_dict, f_out, indent=4)
 
 
 # using predefined split train and val set
@@ -2696,7 +2728,8 @@ if __name__ == '__main__':
     elif action == 'gen_tower_detection_dataset_v3':
         gen_tower_detection_dataset_v3()
     elif action == 'gen_tower_detection_dataset_v4':
-        gen_tower_detection_dataset_v4(aug_times=5)
+        gen_tower_detection_dataset_v4(aug_times=5, subset='train')
+        gen_tower_detection_dataset_v4(aug_times=5, subset='val')
     elif action == 'gen_tower_detection_dataset_v2':
         gen_tower_detection_dataset_v2(subset='train')
         gen_tower_detection_dataset_v2(subset='val')
