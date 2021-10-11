@@ -1588,9 +1588,9 @@ def gen_tower_detection_dataset_v4(aug_times=1, subset=None):
     invalid_tifs_txt = "E:\\Downloads\\mc_seg\\tifs\\invalid_tifs.txt"
 
     if subset is None:
-        save_dir = 'E:/Downloads/tower_detection/v4_augtimes%d/' % aug_times
+        save_dir = 'E:/Downloads/tower_detection/v4_augtimes%d_800_200_noSplit/' % aug_times
     else:
-        save_dir = 'E:/Downloads/tower_detection/v4_augtimes%d/%s' % (aug_times, subset)
+        save_dir = 'E:/Downloads/tower_detection/v4_augtimes%d_800_200/%s' % (aug_times, subset)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
@@ -1642,9 +1642,9 @@ def gen_tower_detection_dataset_v4(aug_times=1, subset=None):
 
     colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
 
-    subsizes = [1024]
+    subsizes = [800]  # [1024]
     scales = [1.0]
-    gaps = [256]  # [256]
+    gaps = [200]  # [256]  # [256]
 
     for ti in range(len(tiffiles)):
         tiffile = tiffiles[ti]
@@ -1779,7 +1779,7 @@ def gen_tower_detection_dataset_v4(aug_times=1, subset=None):
                                 # record its position, to put it to zero in the image
                                 area1 = (xmax1 - xmin1) * (ymax1 - ymin1)
                                 area = (xmax - xmin) * (ymax - ymin)
-                                if area1 >= 0.6 * area:
+                                if area1 >= 0.4 * area:
                                     sub_gt_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
                                 else:
                                     invalid_gt_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
@@ -1809,8 +1809,8 @@ def gen_tower_detection_dataset_v4(aug_times=1, subset=None):
                                 sub_h, sub_w = cutout_new.shape[:2]
                                 single_image = {'file_name': save_prefix + '.jpg', 'id': image_id, 'width': sub_w,
                                                 'height': sub_h}
-                                data_dict['images'].append(single_image)
 
+                                data_dict['images'].append(single_image)
                                 if subset is None:
                                     if is_train:
                                         train_dict['images'].append(single_image)
@@ -1846,7 +1846,6 @@ def gen_tower_detection_dataset_v4(aug_times=1, subset=None):
                                     single_obj['id'] = inst_count
 
                                     data_dict['annotations'].append(single_obj)
-
                                     if subset is None:
                                         if is_train:
                                             train_dict['annotations'].append(single_obj)
@@ -1858,7 +1857,8 @@ def gen_tower_detection_dataset_v4(aug_times=1, subset=None):
                                 image_id = image_id + 1
 
                                 if save_img:
-                                    cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', cutout_new[:, :, ::-1])  # RGB --> BGR
+                                    cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', cutout_new[:, :, ::-1])
+                                    # RGB --> BGR
                         # else:
                         #     # if no gt_boxes
                         #     if len(np.where(cutout[:, :, 0] > 0)[0]) < 0.5 * np.prod(cutout.shape[:2]):
@@ -1873,6 +1873,404 @@ def gen_tower_detection_dataset_v4(aug_times=1, subset=None):
                         # im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32
                         # im /= 255.0  # 0 - 255 to 0.0 - 1.0
                         # ims.append(im)
+
+    if inst_count > 1:
+        if subset is None:
+            with open(save_dir + '/all.json', 'w') as f_out:
+                json.dump(data_dict, f_out, indent=4)
+            with open(save_dir + '/train.json', 'w') as f_out:
+                json.dump(train_dict, f_out, indent=4)
+            with open(save_dir + '/val.json', 'w') as f_out:
+                json.dump(val_dict, f_out, indent=4)
+        else:
+            with open(save_dir + '/%s.json' % subset, 'w') as f_out:
+                json.dump(data_dict, f_out, indent=4)
+
+
+# with histogram matching
+def gen_tower_detection_dataset_v5(aug_times=1, subset=None):
+    if subset is None:
+        source = 'G:/gddata/all'  # 'E:/%s_list.txt' % subset  # sys.argv[1]
+    else:
+        source = 'E:/Downloads/tower_detection/%s_list.txt' % subset  # sys.argv[1]
+    gt_dir = 'G:/gddata/all'  # sys.argv[2]
+    bands_info_txt = "E:\\Downloads\\mc_seg\\tifs\\bands_info.txt"
+    invalid_tifs_txt = "E:\\Downloads\\mc_seg\\tifs\\invalid_tifs.txt"
+
+    if subset is None:
+        save_dir = 'E:/Downloads/tower_detection/v5_augtimes%d_800_200_noSplit/' % aug_times
+    else:
+        save_dir = 'E:/Downloads/tower_detection/v5_augtimes%d_800_200/%s' % (aug_times, subset)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    if os.path.isfile(source):
+        shutil.copy(source, os.path.join(save_dir, os.path.basename(source)))
+
+    valid_labels_set = [3, 4]
+    label_maps = {
+        3: 'tower',
+        4: 'insulator'
+    }
+    bands_info = []
+    if os.path.exists(bands_info_txt):
+        with open(bands_info_txt, 'r', encoding='utf-8-sig') as fp:
+            bands_info = [line.strip() for line in fp.readlines()]
+    invalid_tifs = []
+    if os.path.exists(invalid_tifs_txt):
+        with open(invalid_tifs_txt, 'r', encoding='utf-8-sig') as fp:
+            invalid_tifs = [line.strip() for line in fp.readlines()]
+
+    save_img_path = '%s/images/' % save_dir
+    save_img_shown_path = '%s/images_shown/' % save_dir
+    for p in [save_img_path, save_img_shown_path]:
+        if not os.path.exists(p):
+            os.makedirs(p)
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    data_dict = {'images': [], 'categories': [], 'annotations': []}
+    train_dict, val_dict = None, None
+    if subset is None:
+        train_dict = {'images': [], 'categories': [], 'annotations': []}
+        val_dict = {'images': [], 'categories': [], 'annotations': []}
+    for idx, name in enumerate(["tower0", "tower1", "tower", "insulator"]):  # 1,2,3 is gan, 4 is jueyuanzi
+        single_cat = {'id': idx + 1, 'name': name, 'supercategory': name}
+        data_dict['categories'].append(single_cat)
+        if subset is None:
+            train_dict['categories'].append(single_cat)
+            val_dict['categories'].append(single_cat)
+
+    inst_count = 1
+    image_id = 1
+
+    colors = {1: (255, 0, 0), 2: (0, 255, 0), 3: (0, 0, 255), 4: (255, 255, 0)}
+
+    subsizes = [800]  # [1024]
+    scales = [1.0]
+    gaps = [200]  # [256]  # [256]
+
+    for ti in range(len(tiffiles)):
+        tiffile = tiffiles[ti]
+
+        if not os.path.exists(tiffile):
+            continue
+
+        file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+        if 'Original' in file_prefix or file_prefix in invalid_tifs:
+            continue
+
+        print(ti, '=' * 80)
+        print(file_prefix)
+
+        ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+        print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                     ds.GetDriver().LongName))
+        print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                            ds.RasterYSize,
+                                            ds.RasterCount))
+        print("Projection is {}".format(ds.GetProjection()))
+        projection = ds.GetProjection()
+        projection_sr = osr.SpatialReference(wkt=projection)
+        projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+        geotransform = ds.GetGeoTransform()
+        xOrigin = geotransform[0]
+        yOrigin = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+        if geotransform:
+            print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+            print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+            print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+
+        print('loading gt ...')
+        gt_txt_filename = os.path.join(gt_dir, file_prefix + '_gt.txt')
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_5.xml')
+
+        gt_boxes, gt_labels = load_gt_for_detection(gt_txt_filename, gt_xml_filename, gdal_trans_info=geotransform,
+                                                    valid_labels=valid_labels_set)
+
+        if len(gt_boxes) == 0:
+            continue
+
+        is_train = True
+        if subset is not None:
+            if 'train' in subset:
+                is_train = True
+            else:
+                is_train = False
+
+        for si, (subsize, scale) in enumerate(zip(subsizes, scales)):
+
+            for gap in gaps:
+                offsets = compute_offsets(height=orig_height, width=orig_width, subsize=subsize, gap=gap)
+
+                for oi, (xoffset0, yoffset0, sub_w0, sub_h0) in enumerate(offsets):  # left, up
+                    # sub_width = min(orig_width, big_subsize)
+                    # sub_height = min(orig_height, big_subsize)
+                    # if xoffset + sub_width > orig_width:
+                    #     sub_width = orig_width - xoffset
+                    # if yoffset + sub_height > orig_height:
+                    #     sub_height = orig_height - yoffset
+                    if subset is None:
+                        if np.random.rand() < 0.8:
+                            is_train = True
+                        else:
+                            is_train = False
+
+                    print(oi, len(offsets), xoffset0, yoffset0, sub_w0, sub_h0)
+
+                    for aug_time in range(aug_times) if is_train else [0]:
+                        xoffset, yoffset, sub_w, sub_h = xoffset0, yoffset0, sub_w0, sub_h0
+
+                        if aug_time > 0:
+                            xoffset += np.random.randint(-0.2*sub_w, 0.2*sub_w)
+                            yoffset += np.random.randint(-0.2*sub_h, 0.2*sub_h)
+
+                        xoffset = max(1, xoffset)
+                        yoffset = max(1, yoffset)
+                        if xoffset + sub_w > orig_width - 1:
+                            sub_w = orig_width - 1 - xoffset
+                        if yoffset + sub_h > orig_height - 1:
+                            sub_h = orig_height - 1 - yoffset
+
+                        if sub_w < 512 or sub_h < 512:
+                            continue
+
+                        xoffset, yoffset, sub_w, sub_h = [int(val) for val in
+                                                          [xoffset, yoffset, sub_w, sub_h]]
+                        xmin1, ymin1 = xoffset, yoffset
+                        xmax1, ymax1 = xoffset + sub_w, yoffset + sub_h
+
+                        cutout = []
+                        for bi in [0, 1, 2] if file_prefix not in bands_info else [2, 1, 0]:
+                            band = ds.GetRasterBand(bi + 1)
+                            band_data = band.ReadAsArray(xoffset, yoffset, win_xsize=sub_w, win_ysize=sub_h)
+                            cutout.append(band_data)
+                        cutout = np.stack(cutout, -1)  # RGB
+
+                        if np.min(cutout[:, :, 0]) == np.max(cutout[:, :, 0]):
+                            continue
+
+                        # here, the sub_image box is [xoffset, yoffset, xoffset + sub_w, yoffset + sub_h]
+                        # find all gt_boxes in this sub-rectangle
+                        # 查找gtboxes里面，与当前框有交集的框
+                        # idx1 = np.where(gt_labels >= 2)[0]
+                        # boxes = gt_boxes[idx1, :]  # 得到框
+                        # labels = gt_labels[idx1]
+                        boxes = np.copy(gt_boxes)
+                        labels = np.copy(gt_labels)
+
+                        ious = box_iou_np(np.array([xmin1, ymin1, xmax1, ymax1], dtype=np.float32).reshape(-1, 4), boxes)
+                        idx2 = np.where(ious > 1e-8)[1]
+                        sub_gt_boxes = []
+                        invalid_gt_boxes = []
+                        if len(idx2) > 0:
+                            valid_boxes = boxes[idx2, :]
+                            valid_labels = labels[idx2]
+                            valid_boxes[:, [0, 2]] -= xmin1
+                            valid_boxes[:, [1, 3]] -= ymin1
+                            for box1, label1 in zip(valid_boxes.astype(np.int32), valid_labels):
+                                xmin, ymin, xmax, ymax = box1
+                                xmin1 = max(1, xmin)
+                                ymin1 = max(1, ymin)
+                                xmax1 = min(xmax, sub_w - 1)
+                                ymax1 = min(ymax, sub_h - 1)
+
+                                # here, check the new gt_box[xmin1, ymin1, xmax1, ymax1]
+                                # if the area of new gt_box is less than 0.6 of the original box, then remove this box and
+                                # record its position, to put it to zero in the image
+                                area1 = (xmax1 - xmin1) * (ymax1 - ymin1)
+                                area = (xmax - xmin) * (ymax - ymin)
+                                if area1 >= 0.4 * area:
+                                    sub_gt_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
+                                else:
+                                    invalid_gt_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
+
+                        # if len(np.where(im1[:, :, 0] > 0)[0]) < 0.5 * np.prod(im1.shape[:2]):
+                        #     continue
+
+                        if len(invalid_gt_boxes) > 0:
+                            for box2 in np.array(invalid_gt_boxes).astype(np.int32):
+                                xmin, ymin, xmax, ymax, label = box2
+                                cutout[ymin:ymax, xmin:xmax, :] = 0
+
+                                # check the sub_gt_boxes, remove those boxes where in invalid_gt_boxes
+                                if len(sub_gt_boxes) > 0:
+                                    ious = box_iou_np(box2[:4].reshape(1, 4),
+                                                      np.array(sub_gt_boxes, dtype=np.float32).reshape(-1, 5)[:, :4])
+                                    idx2 = np.where(ious > 0)[1]
+                                    if len(idx2) > 0:
+                                        sub_gt_boxes = [box3 for ii, box3 in enumerate(sub_gt_boxes) if
+                                                        ii not in idx2.tolist()]
+
+                        if len(sub_gt_boxes) > 0:
+                            cutout_sum = np.sum(cutout, axis=2)
+                            if pixelHeight < 0.5 and \
+                                    (len(np.where(cutout_sum == 0)[0]) < 30
+                                     or len(np.where(cutout_sum == 255*3)[0])):
+                                prefix = 'high'
+                            else:
+                                prefix = 'low'
+
+                            save_prefix = '%s_%d_%d_%d_%d_%d' % (prefix, ti, si, oi, gap, aug_time)
+                            for degree in [0, 90, 180, 270] if is_train else [0]:
+                                cutout_new, sub_gt_boxes_new = rotate_image(cutout.copy(), sub_gt_boxes, degree=degree)
+                                save_prefix = '%s_%d' % (save_prefix, degree)
+                                sub_h, sub_w = cutout_new.shape[:2]
+                                single_image = {'file_name': save_prefix + '.jpg', 'id': image_id, 'width': sub_w,
+                                                'height': sub_h}
+
+                                data_dict['images'].append(single_image)
+                                if subset is None:
+                                    if is_train:
+                                        train_dict['images'].append(single_image)
+                                    else:
+                                        val_dict['images'].append(single_image)
+
+                                cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout_new[:, :, ::-1])  # RGB --> BGR
+
+                                save_img = True
+                                for box2 in sub_gt_boxes_new:
+                                    xmin, ymin, xmax, ymax, label = box2
+
+                                    if save_img:
+                                        cv2.rectangle(cutout_new, (xmin, ymin), (xmax, ymax), color=colors[label],
+                                                      thickness=3)
+
+                                    xc1 = int((xmin + xmax) / 2)
+                                    yc1 = int((ymin + ymax) / 2)
+                                    w1 = xmax - xmin
+                                    h1 = ymax - ymin
+                                    # for coco format
+                                    single_obj = {'area': int(w1 * h1),
+                                                  'category_id': int(label),
+                                                  'segmentation': []}
+                                    single_obj['segmentation'].append(
+                                        [int(xmin), int(ymin), int(xmax), int(ymin),
+                                         int(xmax), int(ymax), int(xmin), int(ymax)]
+                                    )
+                                    single_obj['iscrowd'] = 0
+
+                                    single_obj['bbox'] = int(xmin), int(ymin), int(w1), int(h1)
+                                    single_obj['image_id'] = image_id
+                                    single_obj['id'] = inst_count
+
+                                    data_dict['annotations'].append(single_obj)
+                                    if subset is None:
+                                        if is_train:
+                                            train_dict['annotations'].append(single_obj)
+                                        else:
+                                            val_dict['annotations'].append(single_obj)
+
+                                    inst_count = inst_count + 1
+
+                                image_id = image_id + 1
+
+                                if save_img:
+                                    cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', cutout_new[:, :, ::-1])
+                                    # RGB --> BGR
+                        # else:
+                        #     # if no gt_boxes
+                        #     if len(np.where(cutout[:, :, 0] > 0)[0]) < 0.5 * np.prod(cutout.shape[:2]):
+                        #         continue
+                        #
+                        #     if np.random.rand() < 0.1:
+                        #         # for yolo format
+                        #         save_prefix = save_prefix + '_noGT'
+                        #         cv2.imwrite(save_img_path + save_prefix + '.jpg', cutout[:, :, ::-1])  # RGB --> BGR
+
+                        # im = im[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+                        # im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32
+                        # im /= 255.0  # 0 - 255 to 0.0 - 1.0
+                        # ims.append(im)
+
+    if subset is None or 'train' in subset:
+        train_json_filename = save_dir + '/train_no_hm.json'
+        with open(train_json_filename, 'w') as f_out:
+            json.dump(train_dict, f_out, indent=4)
+
+        from pycocotools.coco import COCO
+        from skimage import exposure
+        coco = COCO(train_json_filename)
+        img_maps = {v['file_name'].replace('.jpg', ''): k for k, v in coco.imgs.items()}
+        good_filenames = glob.glob(os.path.join(save_img_path, 'good_*.jpg'))
+        indices = np.arange(len(good_filenames))
+        for j in range(1000):
+            i = np.random.choice(indices, replace=False, size=2)
+            filename1 = good_filenames[i[0]]
+            filename2 = good_filenames[i[1]]
+            prefix1 = os.path.basename(filename1).replace('.jpg', '')
+            prefix2 = os.path.basename(filename2).replace('.jpg', '')
+            img1 = cv2.imread(filename1)
+            img2 = cv2.imread(filename2)
+            multi = True if img1.shape[-1] > 1 else False
+            matched1 = exposure.match_histograms(img1, img2, multichannel=multi)
+            # matched2 = exposure.match_histograms(img2, img1, multichannel=multi)
+
+            # cv2.imwrite(os.path.join(save_dir, '%s_%s.jpg' % (prefix1, prefix2)),
+            #             np.concatenate([img1, img2, matched1, matched2], axis=1))
+
+            img_id = img_maps[prefix1]
+            ann_ids = coco.get_ann_ids(img_ids=[img_id])
+            anns = coco.load_anns(ann_ids)
+            sub_gt_boxes_new = []
+            for ann in anns:
+                x1, y1, bw, bh = ann['bbox']
+                sub_gt_boxes_new.append([x1, y1, x1+bw, y1+bh, ann['category_id']])
+
+            save_prefix = '%s_hm' % prefix1
+            sub_h, sub_w = matched1.shape[:2]
+            single_image = {'file_name': save_prefix + '.jpg', 'id': image_id, 'width': sub_w,
+                            'height': sub_h}
+
+            data_dict['images'].append(single_image)
+            train_dict['images'].append(single_image)
+
+            cv2.imwrite(save_img_path + save_prefix + '.jpg', matched1)  # RGB --> BGR
+
+            save_img = True
+            for box2 in sub_gt_boxes_new:
+                xmin, ymin, xmax, ymax, label = box2
+
+                if save_img:
+                    cv2.rectangle(matched1, (xmin, ymin), (xmax, ymax), color=colors[label],
+                                  thickness=3)
+
+                xc1 = int((xmin + xmax) / 2)
+                yc1 = int((ymin + ymax) / 2)
+                w1 = xmax - xmin
+                h1 = ymax - ymin
+                # for coco format
+                single_obj = {'area': int(w1 * h1),
+                              'category_id': int(label),
+                              'segmentation': []}
+                single_obj['segmentation'].append(
+                    [int(xmin), int(ymin), int(xmax), int(ymin),
+                     int(xmax), int(ymax), int(xmin), int(ymax)]
+                )
+                single_obj['iscrowd'] = 0
+
+                single_obj['bbox'] = int(xmin), int(ymin), int(w1), int(h1)
+                single_obj['image_id'] = image_id
+                single_obj['id'] = inst_count
+
+                data_dict['annotations'].append(single_obj)
+                train_dict['annotations'].append(single_obj)
+
+                inst_count = inst_count + 1
+
+            image_id = image_id + 1
+
+            if save_img:
+                cv2.imwrite(save_img_shown_path + save_prefix + '.jpg', matched1)
 
     if inst_count > 1:
         if subset is None:
@@ -2699,6 +3097,28 @@ def test_rotation():
         cv2.imwrite(os.path.join(save_dir, 'degree-%d.png' % degree), plot_boxes(im_new, boxes_new))
 
 
+def test_hist_matching():
+    from skimage import exposure
+    images_dir = 'E:/Downloads/tower_detection/v4_augtimes5_800_200_noSplit/images'
+    save_dir = 'E:/Downloads/tower_detection/test_hist_matching'
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    filenames = glob.glob(os.path.join(images_dir, '*.jpg'))
+    indices = np.arange(len(filenames))
+    for j in range(10):
+        i = np.random.choice(indices, replace=False, size=2)
+        filename1, filename2 = filenames[i[0]], filenames[i[1]]
+        prefix1 = os.path.basename(filename1).replace('.jpg', '')
+        prefix2 = os.path.basename(filename2).replace('.jpg', '')
+        img1 = cv2.imread(filename1)
+        img2 = cv2.imread(filename2)
+        multi = True if img1.shape[-1] > 1 else False
+        matched1 = exposure.match_histograms(img1, img2, multichannel=multi)
+        matched2 = exposure.match_histograms(img2, img1, multichannel=multi)
+        cv2.imwrite(os.path.join(save_dir, '%s_%s.jpg' % (prefix1, prefix2)),
+                    np.concatenate([img1, img2, matched1, matched2], axis=1))
+
+
 if __name__ == '__main__':
     action = sys.argv[1]
     print(action)
@@ -2728,8 +3148,13 @@ if __name__ == '__main__':
     elif action == 'gen_tower_detection_dataset_v3':
         gen_tower_detection_dataset_v3()
     elif action == 'gen_tower_detection_dataset_v4':
-        gen_tower_detection_dataset_v4(aug_times=5, subset='train')
-        gen_tower_detection_dataset_v4(aug_times=5, subset='val')
+        # gen_tower_detection_dataset_v4(aug_times=5, subset='train')
+        # gen_tower_detection_dataset_v4(aug_times=5, subset='val')
+        gen_tower_detection_dataset_v4(aug_times=5, subset=None)
+    elif action == 'gen_tower_detection_dataset_v5':
+        gen_tower_detection_dataset_v5(aug_times=5, subset='train')
+        gen_tower_detection_dataset_v5(aug_times=5, subset='val')
+        # gen_tower_detection_dataset_v5(aug_times=5, subset=None)
     elif action == 'gen_tower_detection_dataset_v2':
         gen_tower_detection_dataset_v2(subset='train')
         gen_tower_detection_dataset_v2(subset='val')
@@ -2743,3 +3168,5 @@ if __name__ == '__main__':
         split_train_val_set()
     elif action == 'test_rotation':
         test_rotation()
+    elif action == 'test_hist_matching':
+        test_hist_matching()
