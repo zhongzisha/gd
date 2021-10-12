@@ -19,6 +19,7 @@ import time
 import multiprocessing
 from multiprocessing import Pool
 import itertools
+import xml.dom.minidom
 
 
 def add_line(im, mask, p0s, p1s):
@@ -574,9 +575,224 @@ def test_paste():
         cv2.imwrite(os.path.join(save_dir, '%s_%d_with_boxes.png' % (file_prefix, step)), im_sub1)
 
 
+def generate_test_images():
+    tiffile = 'G:\\gddata\\all\\2-WV03-在建杆塔.tif'
+    gt_dir = 'G:\\gddata\\all'
+    save_dir = 'E:\\generated_big_test_images'
+    foreign_fg_dir = 'E:/line_foreign_object_detection/fg_images'
+    foreign_fg_filenames = glob.glob(foreign_fg_dir + '/*.png')
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+
+    ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+    print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                 ds.GetDriver().LongName))
+    print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                        ds.RasterYSize,
+                                        ds.RasterCount))
+    print("Projection is {}".format(ds.GetProjection()))
+    projection = ds.GetProjection()
+    projection_sr = osr.SpatialReference(wkt=projection)
+    projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+    geotransform = ds.GetGeoTransform()
+    xOrigin = geotransform[0]
+    yOrigin = geotransform[3]
+    pixelWidth = geotransform[1]
+    pixelHeight = geotransform[5]
+    orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+    if geotransform:
+        print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+        print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+        print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+    mapcoords2pixelcoords = True
+    print('loading gt ...')
+    gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_linepoint.xml')
+
+    # gt_polys, gt_labels = load_gt_polys_from_esri_xml(gt_xml_filename, gdal_trans_info=geotransform,
+    #                                                   mapcoords2pixelcoords=mapcoords2pixelcoords)
+    DomTree = xml.dom.minidom.parse(gt_xml_filename)
+    annotation = DomTree.documentElement
+    regionlist = annotation.getElementsByTagName('Region')
+    gt_polys = []
+    gt_labels = []
+
+    for region in regionlist:
+        name = region.getAttribute("name")
+        polylist = region.getElementsByTagName('Coordinates')
+        for poly in polylist:
+            coords_str = poly.childNodes[0].data
+            coords = [float(val) for val in coords_str.strip().split(' ')]
+            points = np.array(coords).reshape([-1, 2])  # nx2
+            if mapcoords2pixelcoords:  # geo coordinates to pixel coordinates
+                points[:, 0] -= xOrigin
+                points[:, 1] -= yOrigin
+                points[:, 0] /= pixelWidth
+                points[:, 1] /= pixelHeight
+                points += 0.5
+                points = points.astype(np.int32)
+
+            gt_polys.append(points)
+
+    print(gt_polys)
+    # import pdb
+    # pdb.set_trace()
+    print('load image ...')
+    im_sub = np.zeros((orig_height, orig_width, 3), dtype=np.uint8)
+    for b in range(3):
+        band = ds.GetRasterBand(b + 1)
+        im_sub[:, :, b] += band.ReadAsArray(0, 0, win_xsize=orig_width, win_ysize=orig_height)
+
+    # 首先根据标注生成mask图像，存在内存问题！！！
+    print('generate mask ...')
+    mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
+    # if True:
+    #     # 下面的可以直接画所有的轮廓，但是会出现相排斥的现象，用下面的循环可以得到合适的mask
+    #     # cv2.drawContours(mask, gt_polys, -1, color=(255, 0, 0), thickness=-1)
+    #
+    #     for poly in gt_polys:  # poly为nx2的点, numpy.array
+    #         cv2.drawContours(mask, [poly], -1, color=(1, 1, 1), thickness=-1)
+    #
+    #     mask_savefilename = save_dir + "/" + file_prefix + ".png"
+    #     # cv2.imwrite(mask_savefilename, mask)
+    #     if not os.path.exists(mask_savefilename):
+    #         cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
+
+    W, H = orig_width, orig_height
+    time.sleep(3)
+    points = gt_polys[0]
+    for i in range(len(points) - 1):
+        x1, y1 = points[i]
+        x2, y2 = points[i + 1]
+        print(i, x1, y1, x2, y2)
+        if abs(x1 - x2) == 1 and (20 < x1 < W - 20):
+            expand = np.random.randint(low=10, high=x1 - 9, size=2)
+            x1_l = x1 - expand[0]
+            x1_r = x1 + expand[1]
+            p0s, p1s = [], []
+            if x1_l >= 3:
+                p0s.append((x1_l, 0))
+                p1s.append((x1_l, H - 1))
+            p0s.append((x1, 0))
+            p1s.append((x1, H - 1))
+            if x1_r <= W - 3:
+                p0s.append((x1_r, 0))
+                p1s.append((x1_r, H - 1))
+
+            im_sub, mask = add_line(im_sub, mask, p0s, p1s)
+        elif abs(y1 - y2) == 1 and (20 < y1 < H - 20):
+            expand = np.random.randint(low=10, high=y1 - 9, size=2)
+            y1_u = y1 - expand[0]
+            y1_b = y1 + expand[1]
+            p0s, p1s = [], []
+            if y1_u >= 3:
+                p0s.append((0, y1_u))
+                p1s.append((W - 1, y1_u))
+            p0s.append((0, y1))
+            p1s.append((W - 1, y1))
+            if y1_b <= H - 3:
+                p0s.append((0, y1_b))
+                p1s.append((W - 1, y1_b))
+
+            im_sub, mask = add_line(im_sub, mask, p0s, p1s)
+        elif abs(x1 - x2) > 10 and abs(y1 - y2) > 10:
+            k = (y1 - y2) / (x2 - x1)
+            b = - k * x1 - y1
+            # (y1 - y2)x + (x1 - x2)y + x1y2 -y1x2 = 0
+            expand = np.random.randint(low=10, high=100, size=2)
+            b_up = b - expand[0]
+            b_down = b + expand[1]
+            if abs(k) > 1:
+                # y=3, y=H-3
+                p0s = [(int((-3 - bb) / k), 3) for bb in [b, b_up, b_down]]
+                p1s = [(int((-H + 3 - bb) / k), H - 3) for bb in [b, b_up, b_down]]
+                im_sub, mask = add_line(im_sub, mask, p0s, p1s)
+            elif 1 >= abs(k) > 0.05:
+                # x=3, x=W-3
+                p0s = [(3, int(-k * 3 - bb)) for bb in [b, b_up, b_down]]
+                p1s = [(W - 3, int(-k * (W - 3) - bb)) for bb in [b, b_up, b_down]]
+                im_sub, mask = add_line(im_sub, mask, p0s, p1s)
+
+    # blur the image
+    prob = np.random.rand()
+    if prob < 0.5:
+        ksize = np.random.choice([3, 5, 7, 9])
+        sigmas = np.arange(0.5, ksize, step=0.5)
+        im_sub = cv2.GaussianBlur(im_sub, ksize=(ksize, ksize),
+                                  sigmaX=np.random.choice(sigmas),
+                                  sigmaY=np.random.choice(sigmas))
+    elif 0.5 <= prob <= 0.8:
+        #     ksize = np.random.choice([3, 5])
+        #     im_sub = cv2.medianBlur(im_sub, ksize=ksize)
+        # else:
+        im_sub_with_mask = np.concatenate([im_sub, mask[:, :, None]], axis=2)
+        im_sub_with_mask = elastic_transform_v2(im_sub_with_mask, im_sub.shape[1] * 2,
+                                                im_sub.shape[1] * np.random.randint(low=4, high=8) / 100,
+                                                im_sub.shape[1] * np.random.randint(low=4, high=8) / 100)
+        im_sub, mask = im_sub_with_mask[:, :, :3], im_sub_with_mask[:, :, 3]
+
+    if mask.sum() < min(mask.shape[:2]) / 2:
+        return None, None, None, None
+
+    # add foreigne objects to images
+    fg_images = []
+    total_count = np.random.randint(2, 5)
+    fg_count = np.random.randint(low=2, high=5)
+    while True:
+        random_filenames = np.random.choice(foreign_fg_filenames,
+                                            size=total_count,
+                                            replace=True)
+        for name in random_filenames:
+            if len(fg_images) > total_count:
+                break
+            fg_im = cv2.imread(name, cv2.IMREAD_UNCHANGED)  # BGRA
+            if fg_im.shape[2] != 4:
+                continue
+            x, y = np.where(fg_im[:, :, -1])
+            xmin, ymin, xmax, ymax = np.min(x), np.min(y), np.max(x), np.max(y)
+            if xmax - xmin < 10 or ymax - ymin < 10:
+                continue
+            fg_images.append(fg_im[xmin:xmax, ymin:ymax, :])
+
+        if len(fg_images) > 1:
+            break
+    print('num_fg_images: ', len(fg_images))
+    # paste the fg_image to im_sub
+    im_sub1, im_sub1_com, im_sub1_blend, mask1, boxes1, boxes1_mask = \
+        paste_fg_images_to_bg(im_sub, mask, fg_images, fg_count)
+
+    mask2 = mask.copy()
+    mask2[np.where(boxes1_mask)] = 2
+
+    save_path = os.path.join(save_dir, file_prefix + '_withLineForeign.tif')
+    # return im_sub1, mask1, mask2, boxes1
+    driver = gdal.GetDriverByName("GTiff")
+    outdata = driver.Create(save_path, orig_width, orig_height, 3, gdal.GDT_Byte)
+    # options=['COMPRESS=LZW', 'BIGTIFF=YES', 'INTERLEAVE=PIXEL'])
+    # outdata = driver.CreateCopy(save_path, ds, 0, ['COMPRESS=LZW', 'BIGTIFF=YES', 'INTERLEAVE=PIXEL'])
+    outdata.SetGeoTransform(geotransform)  # sets same geotransform as input
+    outdata.SetProjection(projection)  # sets same projection as input
+
+    for b in range(3):
+        band = outdata.GetRasterBand(b + 1)
+        band.WriteArray(im_sub1[:, :, b], xoff=0, yoff=0)
+        # band.SetNoDataValue(no_data_value)
+        band.FlushCache()
+        del band
+    outdata.FlushCache()
+    del outdata
+    del driver
+
+
+
 if __name__ == '__main__':
     # test_paste()
     # sys.exit(-1)
+
+    generate_test_images()
+    sys.exit(-1)
+
 
     if os.name == 'nt':
         bg_images_dir = 'D:/train1_bg_images/'

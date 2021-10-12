@@ -12,6 +12,8 @@ import json
 from PIL import Image
 import time
 import xml.dom.minidom
+from pycocotools.coco import COCO
+from skimage import exposure
 
 
 def main(subset):
@@ -2089,13 +2091,26 @@ def gen_tower_detection_dataset_v5(aug_times=1, subset=None):
                                 # record its position, to put it to zero in the image
                                 area1 = (xmax1 - xmin1) * (ymax1 - ymin1)
                                 area = (xmax - xmin) * (ymax - ymin)
-                                if area1 >= 0.4 * area:
+                                if area1 >= 0.3 * area:
                                     sub_gt_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
                                 else:
                                     invalid_gt_boxes.append([xmin1, ymin1, xmax1, ymax1, label1])
 
                         # if len(np.where(im1[:, :, 0] > 0)[0]) < 0.5 * np.prod(im1.shape[:2]):
                         #     continue
+                        if len(sub_gt_boxes) == 0:
+                            continue
+
+                        # sub_gt_boxes_bak = np.copy(np.array(sub_gt_boxes).reshape(-1, 5))
+                        # is_all_insulators = np.all(np.array(sub_gt_boxes_bak).reshape(-1, 5)[:, -1] == 4)
+                        # if is_all_insulators:
+                        #     xxx1, yyy1 = np.min(sub_gt_boxes_bak[:, 0:2], axis=0)
+                        #     xxx2, yyy2 = np.max(sub_gt_boxes_bak[:, 2:4], axis=0)
+                        #     xxx1, yyy1 = max(1, xxx1), max(1, yyy1)
+                        #     xxx2, yyy2 = min(sub_w-1, xxx2), min(sub_h-1,yyy2)
+                        #     sub_gt_boxes.append([xxx1, yyy1, xxx2, yyy2, 3])
+                        #
+                        # sub_gt_boxes_bak = np.copy(np.array(sub_gt_boxes).reshape(-1, 5))
 
                         if len(invalid_gt_boxes) > 0:
                             for box2 in np.array(invalid_gt_boxes).astype(np.int32):
@@ -2110,6 +2125,25 @@ def gen_tower_detection_dataset_v5(aug_times=1, subset=None):
                                     if len(idx2) > 0:
                                         sub_gt_boxes = [box3 for ii, box3 in enumerate(sub_gt_boxes) if
                                                         ii not in idx2.tolist()]
+
+                        # if len(sub_gt_boxes) > 0:
+                        #     is_all_insulators = np.all(np.array(sub_gt_boxes).reshape(-1, 5)[:, -1] == 4)
+                        #     if is_all_insulators:
+                        #         label3_boxes = []
+                        #         for box in np.array(sub_gt_boxes).astype(np.int32):
+                        #             xmin, ymin, xmax, ymax, label = box
+                        #             for box2 in sub_gt_boxes_bak:
+                        #                 xxx1, yyy1, xxx2, yyy2, label222 = box2
+                        #                 if label222 == 3 and box_iou_np(np.array([[xmin, ymin , xmax, ymax]]),
+                        #                               np.array(xxx1, yyy1, xxx2, yyy2))[0,0] > 0:
+                        #                     label3_boxes.append([xxx1, yyy1, xxx2, yyy2, label222])
+                        #         if len(label3_boxes) > 0:
+                        #             label3_boxes = np.array(label3_boxes).reshape(-1, 5)
+                        #             sub_gt_boxes = np.concatenate([np.array(sub_gt_boxes).reshape(-1, 5),
+                        #                                            label3_boxes], axis=0)
+                        #             sub_gt_boxes = np.unique(sub_gt_boxes, axis=0)
+                        if len(sub_gt_boxes) > 0 and np.all(np.array(sub_gt_boxes).reshape(-1, 5)[:, -1] == 4):
+                            continue
 
                         if len(sub_gt_boxes) > 0:
                             cutout_sum = np.sum(cutout, axis=2)
@@ -2193,17 +2227,24 @@ def gen_tower_detection_dataset_v5(aug_times=1, subset=None):
                         # ims.append(im)
 
     if subset is None or 'train' in subset:
-        train_json_filename = save_dir + '/train_no_hm.json'
-        with open(train_json_filename, 'w') as f_out:
-            json.dump(train_dict, f_out, indent=4)
+        train_json_filename = os.path.join(save_dir, 'train_no_hm.json')
+        if subset is None:
+            with open(train_json_filename, 'w') as f_out:
+                json.dump(train_dict, f_out, indent=4)
+        else:
+            with open(train_json_filename, 'w') as f_out:
+                json.dump(data_dict, f_out, indent=4)
 
-        from pycocotools.coco import COCO
-        from skimage import exposure
+        with open(os.path.join(save_dir, 'train_no_hm_info.txt'), 'w') as f_out:
+            f_out.write('%d,%d' % (image_id, inst_count))
+
+        time.sleep(5)
+
         coco = COCO(train_json_filename)
         img_maps = {v['file_name'].replace('.jpg', ''): k for k, v in coco.imgs.items()}
-        good_filenames = glob.glob(os.path.join(save_img_path, 'good_*.jpg'))
+        good_filenames = glob.glob(os.path.join(save_img_path, 'high_*.jpg'))
         indices = np.arange(len(good_filenames))
-        for j in range(1000):
+        for j in range(5000):
             i = np.random.choice(indices, replace=False, size=2)
             filename1 = good_filenames[i[0]]
             filename2 = good_filenames[i[1]]
@@ -2232,7 +2273,8 @@ def gen_tower_detection_dataset_v5(aug_times=1, subset=None):
                             'height': sub_h}
 
             data_dict['images'].append(single_image)
-            train_dict['images'].append(single_image)
+            if subset is None:
+                train_dict['images'].append(single_image)
 
             cv2.imwrite(save_img_path + save_prefix + '.jpg', matched1)  # RGB --> BGR
 
@@ -2263,7 +2305,8 @@ def gen_tower_detection_dataset_v5(aug_times=1, subset=None):
                 single_obj['id'] = inst_count
 
                 data_dict['annotations'].append(single_obj)
-                train_dict['annotations'].append(single_obj)
+                if subset is None:
+                    train_dict['annotations'].append(single_obj)
 
                 inst_count = inst_count + 1
 
