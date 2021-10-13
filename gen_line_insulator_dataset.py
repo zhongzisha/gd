@@ -21,6 +21,8 @@ from multiprocessing import Pool
 import itertools
 import sklearn
 from sklearn.cluster import KMeans
+import subprocess
+import xml.dom.minidom
 
 
 DEBUG = False
@@ -200,8 +202,9 @@ def generate_insulator_fg_images(count, debug=False):
     return fg_images, fg_boxes
 
 
-def add_line(im, p0s, p1s):
-    line_width = np.random.randint(1, 3)
+def add_line(im, p0s, p1s, line_width=None):
+    if line_width is None:
+        line_width = np.random.randint(1, 3)
     mask = np.zeros(im.shape[:2], dtype=np.uint8)
     for p0, p1 in zip(p0s, p1s):
 
@@ -853,9 +856,378 @@ def test_paste():
         cv2.imwrite(os.path.join(save_dir, '%s_%d_with_boxes.png' % (file_prefix, step)), im_sub1)
 
 
+
+def save_arr_to_tif(arr, reference_tif, save_filename):
+    H, W, B = arr.shape
+    ds = gdal.Open(reference_tif, gdal.GA_ReadOnly)
+    print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                 ds.GetDriver().LongName))
+    print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                        ds.RasterYSize,
+                                        ds.RasterCount))
+    print("Projection is {}".format(ds.GetProjection()))
+    projection = ds.GetProjection()
+    projection_sr = osr.SpatialReference(wkt=projection)
+    projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+    geotransform = ds.GetGeoTransform()
+    orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+    # return im_sub1, mask1, mask2, boxes1
+    driver = gdal.GetDriverByName("GTiff")
+    outdata = driver.Create(save_filename, orig_width, orig_height, B, gdal.GDT_Byte)
+    # options=['COMPRESS=LZW', 'BIGTIFF=YES', 'INTERLEAVE=PIXEL'])
+    # outdata = driver.CreateCopy(save_path, ds, 0, ['COMPRESS=LZW', 'BIGTIFF=YES', 'INTERLEAVE=PIXEL'])
+    outdata.SetGeoTransform(geotransform)  # sets same geotransform as input
+    outdata.SetProjection(projection)  # sets same projection as input
+
+    for b in range(B):
+        band = outdata.GetRasterBand(b + 1)
+        band.WriteArray(arr[:, :, b], xoff=0, yoff=0)
+        # band.SetNoDataValue(no_data_value)
+        band.FlushCache()
+        del band
+    outdata.FlushCache()
+    del outdata
+    del driver
+
+
+
+def generate_test_images():
+    if os.name == 'nt':
+        source = 'G:/gddata/all'
+        gt_dir = 'G:\\gddata\\all'
+        save_root = 'E:\\generated_big_test_images\\insulator_defects'
+        foreign_fg_dir = 'E:/line_foreign_object_detection/fg_images'
+        bands_info_txt = "E:\\Downloads\\mc_seg\\tifs\\bands_info.txt"
+        invalid_tifs_txt = "E:\\Downloads\\mc_seg\\tifs\\invalid_tifs.txt"
+    else:
+        source = '/media/ubuntu/Working/rs/guangdong_aerial/all/'
+        gt_dir = '/media/ubuntu/Working/rs/guangdong_aerial/all'
+        save_root = '/media/ubuntu/Data/generated_big_test_images/insulator_defects'
+        foreign_fg_dir = '/media/ubuntu/Data/line_foreign_object_detection/fg_images'
+        bands_info_txt = "/media/ubuntu/Data/line_foreign_object_detection/bands_info.txt"
+        invalid_tifs_txt = "/media/ubuntu/Data/line_foreign_object_detection/invalid_tifs.txt"
+
+    bands_info = []
+    if os.path.exists(bands_info_txt):
+        with open(bands_info_txt, 'r', encoding='utf-8-sig') as fp:
+            bands_info = [line.strip() for line in fp.readlines()]
+    invalid_tifs = []
+    if os.path.exists(invalid_tifs_txt):
+        with open(invalid_tifs_txt, 'r', encoding='utf-8-sig') as fp:
+            invalid_tifs = [line.strip() for line in fp.readlines()]
+
+    foreign_fg_filenames = glob.glob(foreign_fg_dir + '/*.png')
+    if len(foreign_fg_filenames) == 0:
+        print('need line foreign objects fg images.')
+        sys.exit(-1)
+
+    tiffiles = None
+    if os.path.isfile(source) and source[-4:] == '.txt':
+        with open(source, 'r', encoding='utf-8-sig') as fp:
+            tiffiles = [line.strip() for line in fp.readlines()]
+    else:
+        tiffiles = natsorted(glob.glob(source + '/*.tif'))
+    print(tiffiles)
+
+    if len(tiffiles) == 0:
+        print('need tif files')
+        sys.exit(-1)
+
+    for tiffile in tiffiles:
+
+        file_prefix = tiffile.split(os.sep)[-1].replace('.tif', '')
+        if os.path.exists(os.path.join(save_root, file_prefix + '.tif')):
+            continue
+
+        gt_xml_filename = os.path.join(gt_dir, file_prefix + '_gt_linepoint.xml')
+        if not os.path.exists(gt_xml_filename):
+            continue
+
+        save_dir = os.path.join(save_root, file_prefix)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        tmp_dir = os.path.join(save_dir, 'tmp')
+        if not os.path.exists(tmp_dir):
+            os.makedirs(tmp_dir)
+        tmp_dir2 = os.path.join(save_dir, 'tmp2')
+        if not os.path.exists(tmp_dir2):
+            os.makedirs(tmp_dir2)
+
+        ds = gdal.Open(tiffile, gdal.GA_ReadOnly)
+        print("Driver: {}/{}".format(ds.GetDriver().ShortName,
+                                     ds.GetDriver().LongName))
+        print("Size is {} x {} x {}".format(ds.RasterXSize,
+                                            ds.RasterYSize,
+                                            ds.RasterCount))
+        print("Projection is {}".format(ds.GetProjection()))
+        projection = ds.GetProjection()
+        projection_sr = osr.SpatialReference(wkt=projection)
+        projection_esri = projection_sr.ExportToWkt(["FORMAT=WKT1_ESRI"])
+        geotransform = ds.GetGeoTransform()
+        xOrigin = geotransform[0]
+        yOrigin = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        orig_height, orig_width = ds.RasterYSize, ds.RasterXSize
+        if geotransform:
+            print("Origin = ({}, {})".format(geotransform[0], geotransform[3]))
+            print("Pixel Size = ({}, {})".format(geotransform[1], geotransform[5]))
+            print("IsNorth = ({}, {})".format(geotransform[2], geotransform[4]))
+        mapcoords2pixelcoords = True
+        print('loading gt ...')
+
+        # gt_polys, gt_labels = load_gt_polys_from_esri_xml(gt_xml_filename, gdal_trans_info=geotransform,
+        #                                                   mapcoords2pixelcoords=mapcoords2pixelcoords)
+        DomTree = xml.dom.minidom.parse(gt_xml_filename)
+        annotation = DomTree.documentElement
+        regionlist = annotation.getElementsByTagName('Region')
+        gt_polys = []
+        gt_labels = []
+
+        for region in regionlist:
+            name = region.getAttribute("name")
+            polylist = region.getElementsByTagName('Coordinates')
+            for poly in polylist:
+                coords_str = poly.childNodes[0].data
+                coords = [float(val) for val in coords_str.strip().split(' ')]
+                points = np.array(coords).reshape([-1, 2])  # nx2
+                if mapcoords2pixelcoords:  # geo coordinates to pixel coordinates
+                    points[:, 0] -= xOrigin
+                    points[:, 1] -= yOrigin
+                    points[:, 0] /= pixelWidth
+                    points[:, 1] /= pixelHeight
+                    points += 0.5
+                    points = points.astype(np.int32)
+
+                gt_polys.append(points)
+
+        print(gt_polys)
+        points = gt_polys[0]
+
+        # import pdb
+        # pdb.set_trace()
+        # print('load image ...')
+        # im_sub = np.zeros((orig_height, orig_width, 3), dtype=np.uint8)
+        # for b in range(3):
+        #     band = ds.GetRasterBand(b + 1)
+        #     im_sub[:, :, b] += band.ReadAsArray(0, 0, win_xsize=orig_width, win_ysize=orig_height)
+
+        # 首先根据标注生成mask图像，存在内存问题！！！
+        print('generate mask ...')
+        mask = np.zeros((orig_height, orig_width, 1), dtype=np.uint8)
+        if True:
+            # 下面的可以直接画所有的轮廓，但是会出现相排斥的现象，用下面的循环可以得到合适的mask
+            # cv2.drawContours(mask, gt_polys, -1, color=(255, 0, 0), thickness=-1)
+
+            # for poly in gt_polys:  # poly为nx2的点, numpy.array
+            #     cv2.drawContours(mask, [poly], -1, color=(1, 1, 1), thickness=-1)
+            for i in range(len(points) - 1):
+                x1, y1 = points[i]
+                x2, y2 = points[i + 1]
+                print(i, x1, y1, x2, y2)
+                cv2.line(mask, (x1, y1), (x2, y2), color=(255, 255, 255), thickness=2)
+
+            # mask_savefilename = save_dir + "/" + file_prefix + ".png"
+            # # cv2.imwrite(mask_savefilename, mask)
+            # if not os.path.exists(mask_savefilename):
+            #     cv2.imencode('.png', mask)[1].tofile(mask_savefilename)
+
+        save_images_dir = os.path.join(save_dir, 'sub_images')
+        if not os.path.exists(save_images_dir):
+            os.makedirs(save_images_dir)
+        save_masks_dir = os.path.join(save_dir, 'sub_masks')
+        if not os.path.exists(save_masks_dir):
+            os.makedirs(save_masks_dir)
+        save_mask_filename = os.path.join(tmp_dir, file_prefix + '.tif')
+        save_arr_to_tif(mask, tiffile, save_filename=save_mask_filename)
+        del mask
+
+        if os.path.exists(tiffile):
+            print('split image tif')
+            command = r'gdal_retile.py -of GTiff -ps 2048 2048 -overlap 0 -ot Byte -r cubic -targetDir %s %s' % (
+                save_images_dir, tiffile
+            )
+            print(command)
+            os.system(command)
+        if os.path.exists(save_mask_filename):
+            print('split mask tif')
+            command = r'gdal_retile.py -of GTiff -ps 2048 2048 -overlap 0 -ot Byte -r near -targetDir %s %s' % (
+                save_masks_dir, save_mask_filename
+            )
+            print(command)
+            os.system(command)
+
+        # add line and foreign objects to image
+        img_filenames = glob.glob(os.path.join(save_images_dir, '*.tif'))
+        merge_tif_filenames = []
+        merge_tif_filenames_only_line_region = []
+        expand = np.random.randint(low=15, high=30, size=2)
+        for batch_idx, img_filename in enumerate(img_filenames):
+            file_prefix1 = img_filename.split(os.sep)[-1].replace('.tif', '')
+            save_tif_filename = os.path.join(tmp_dir2, file_prefix1 + '.tif')
+            if os.path.exists(save_tif_filename):
+                merge_tif_filenames.append(save_tif_filename)
+                continue
+            im_sub = np.array(Image.open(img_filename))   # RGB --> BGR
+            mask0 = np.array(Image.open(os.path.join(save_masks_dir, file_prefix1 + '.tif')).convert('L'))
+            if np.max(mask0) == 0:
+                shutil.copyfile(img_filename, save_tif_filename)
+                merge_tif_filenames.append(save_tif_filename)
+                continue
+            im_sub = np.copy(im_sub)
+            H, W = im_sub.shape[:2]
+            mask = np.zeros((H, W), dtype=np.float32)
+            mask_k = np.zeros((H, W), dtype=np.float32)
+            yy, xx = np.where(mask0)
+            sorted_idx = np.argsort(xx)
+            x1, x2 = xx[sorted_idx[0]], xx[sorted_idx[-1]]
+            y1, y2 = yy[sorted_idx[0]], yy[sorted_idx[-1]]
+            print(x1, y1, x2, y2)
+            print('add line to image')
+            if abs(x1 - x2) == 1 and (1 < x1 < W - 1):
+                # expand = np.random.randint(low=10, high=x1 - 9, size=2)
+                x1_l = x1 - expand[0]
+                x1_r = x1 + expand[1]
+                p0s, p1s = [], []
+                if x1_l >= 1:
+                    p0s.append((x1_l, 0))
+                    p1s.append((x1_l, H - 1))
+                p0s.append((x1, 0))
+                p1s.append((x1, H - 1))
+                if x1_r <= W - 1:
+                    p0s.append((x1_r, 0))
+                    p1s.append((x1_r, H - 1))
+
+                im_sub, mask1 = add_line(im_sub, p0s, p1s, line_width=1)
+                mask[mask1 > 0] = 1
+                mask_k[mask1 > 0] = np.pi / 2
+            elif abs(y1 - y2) == 1 and (1 < y1 < H - 1):
+                # expand = np.random.randint(low=10, high=y1 - 9, size=2)
+                y1_u = y1 - expand[0]
+                y1_b = y1 + expand[1]
+                p0s, p1s = [], []
+                if y1_u >= 1:
+                    p0s.append((0, y1_u))
+                    p1s.append((W - 1, y1_u))
+                p0s.append((0, y1))
+                p1s.append((W - 1, y1))
+                if y1_b <= H - 1:
+                    p0s.append((0, y1_b))
+                    p1s.append((W - 1, y1_b))
+
+                im_sub, mask1 = add_line(im_sub, p0s, p1s, line_width=1)
+                mask[mask1 > 0] = 1
+                mask_k[mask1 > 0] = 0
+            elif abs(x1 - x2) > 1 and abs(y1 - y2) > 1:
+                k = (y1 - y2) / (x2 - x1)
+                b = - k * x1 - y1
+                # (y1 - y2)x + (x1 - x2)y + x1y2 -y1x2 = 0
+                # expand = np.random.randint(low=10, high=100, size=2)
+                b_up = b - expand[0]
+                b_down = b + expand[1]
+                if abs(k) > 1:
+                    # y=3, y=H-3
+                    p0s = [(int((-1 - bb) / k), 1) for bb in [b, b_up, b_down]]
+                    p1s = [(int((-H + 1 - bb) / k), H - 1) for bb in [b, b_up, b_down]]
+                    im_sub, mask1 = add_line(im_sub, p0s, p1s, line_width=1)
+                elif 1 >= abs(k) > 0.05:
+                    # x=3, x=W-3
+                    p0s = [(1, int(-k * 1 - bb)) for bb in [b, b_up, b_down]]
+                    p1s = [(W - 1, int(-k * (W - 1) - bb)) for bb in [b, b_up, b_down]]
+                    im_sub, mask1 = add_line(im_sub, p0s, p1s, line_width=1)
+                else:
+                    mask1 = np.zeros(im_sub.shape[:2], dtype=np.uint8)
+                mask[mask1 > 0] = 1
+                mask_k[mask1 > 0] = np.arctan(k)
+
+            print('blur the image')
+            prob = np.random.rand()
+            if True:  # prob < 0.2:
+                ksize = 3  # np.random.choice([3, 5, 7, 9])
+                sigmas = np.arange(0.5, ksize, step=0.5)
+                im_sub = cv2.GaussianBlur(im_sub, ksize=(ksize, ksize),
+                                          sigmaX=np.random.choice(sigmas),
+                                          sigmaY=np.random.choice(sigmas))
+            # elif 0.8 <= prob:
+            #     #     ksize = np.random.choice([3, 5])
+            #     #     im_sub = cv2.medianBlur(im_sub, ksize=ksize)
+            #     # else:
+            #     im_sub_with_mask = np.concatenate([im_sub, mask[:, :, None]], axis=2)
+            #     im_sub_with_mask = elastic_transform_v2(im_sub_with_mask, im_sub.shape[1] * 2,
+            #                                             im_sub.shape[1] * np.random.randint(low=4, high=8) / 100,
+            #                                             im_sub.shape[1] * np.random.randint(low=4, high=8) / 100)
+            #     im_sub, mask = im_sub_with_mask[:, :, :3], im_sub_with_mask[:, :, 3]
+
+            if mask.sum() < 50:  # min(mask.shape[:2]) / 2:
+                shutil.copyfile(img_filename, save_tif_filename)
+                merge_tif_filenames.append(save_tif_filename)
+                continue
+
+            print('get foreign fg images')
+            total_count = 100
+            fg_count = np.random.randint(low=0, high=3)
+            short_side_min_len = 10
+            all_fg_images, all_fg_boxes = generate_insulator_fg_images(total_count)
+            print('num_fg_images: ', len(all_fg_images))
+            # paste the fg_image to im_sub
+            im_sub1, im_sub1_com, im_sub1_blend, mask1, boxes1, boxes1_mask = \
+                paste_fg_images_to_bg(im_sub, mask, mask_k, all_fg_images, all_fg_boxes,
+                                      fg_count, short_side_min_len=short_side_min_len)
+
+            mask2 = mask.copy()
+            mask2[np.where(boxes1_mask)] = 2
+
+            save_arr_to_tif(im_sub1, img_filename, save_filename=save_tif_filename)
+            merge_tif_filenames.append(save_tif_filename)
+            merge_tif_filenames_only_line_region.append(save_tif_filename)
+
+        if len(merge_tif_filenames) > 0:
+            current_dir = os.getcwd()
+            os.chdir(tmp_dir2)
+            command = r'gdal_merge.py -of GTiff -co "TILED=YES" -co "COMPRESS=LZW" -co "BIGTIFF=YES" -n 0 -o %s ' \
+                      r'%s' % (
+                          os.path.join(save_root, file_prefix + '.tif'),
+                          ' '.join([os.path.basename(name) for name in merge_tif_filenames])
+                      )
+            print(command)
+            # os.system(command)
+            process = subprocess.Popen(command, shell=True)
+            output = process.communicate()[0]
+            os.chdir(current_dir)
+
+        if len(merge_tif_filenames_only_line_region) > 0:
+            current_dir = os.getcwd()
+            os.chdir(tmp_dir2)
+            command = r'gdal_merge.py -of GTiff -co "TILED=YES" -co "COMPRESS=LZW" -co "BIGTIFF=YES" -n 0 -o %s ' \
+                      r'%s' % (
+                          os.path.join(save_root, file_prefix + '_line_region.tif'),
+                          ' '.join([os.path.basename(name) for name in merge_tif_filenames_only_line_region])
+                      )
+            print(command)
+            # os.system(command)
+            process = subprocess.Popen(command, shell=True)
+            output = process.communicate()[0]
+            os.chdir(current_dir)
+
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+        if os.path.exists(tmp_dir2):
+            shutil.rmtree(tmp_dir2)
+        if os.path.exists(save_images_dir):
+            shutil.rmtree(save_images_dir)
+        if os.path.exists(save_masks_dir):
+            shutil.rmtree(save_masks_dir)
+        if os.path.exists(save_dir):
+            shutil.rmtree(save_dir)
+
+
 if __name__ == '__main__':
     # test_paste()
     # sys.exit(-1)
+
+    generate_test_images()
+    sys.exit(-1)
+
 
     if os.name == 'nt':
         short_side_min_len = int(sys.argv[1])
