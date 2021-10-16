@@ -3265,6 +3265,74 @@ def test_multiclass_dice():
         print(np.mean(all_dices, axis=1))
 
 
+def test_multiclass_dice_for_mcseg():
+    gt_images_dir = r'E:\line_foreign_object_detection\augmented_data_v2\val\annotations_with_foreign'
+    pred_images_dir = r'E:\line_foreign_object_detection\logs_v2\U_Net_512_2_0.001\val'
+    gt_images_dir = '/media/ubuntu/Data/mc_seg/data_using_shp_multi_random400_from_merged/annotations/val'
+    pred_images_dir = '/media/ubuntu/Data/mc_seg/logs_from_merged/U_Net_512_4_0.0001/epoch-50/val'
+    # [0.88512737 0.9510242  0.9545305  0.67118734]
+    # pred_images_dir = '/media/ubuntu/Data/mc_seg/logs_from_merged/SMP_UnetPlusPlus_512_8_0.001/epoch-50/val'
+    # [0.88470334 0.96977305 0.94096136 0.7518728 ]
+    # 1: 'landslide',
+    # 2: 'water',
+    # 3: 'tree',
+    # 4: 'building',
+    good_images_dir = os.path.join(pred_images_dir, 'good_images')
+    if not os.path.exists(good_images_dir):
+        os.makedirs(good_images_dir)
+    valid_labels = [1, 2, 3, 4]
+    lines = []
+    all_dices = []
+    for gt_filename in glob.glob(os.path.join(gt_images_dir, '*.png')):
+        prefix = os.path.basename(gt_filename).replace('.png', '')
+        pred_filename = os.path.join(pred_images_dir, prefix + '_binary.png')
+        print(gt_filename)
+        print(pred_filename)
+        # if True:
+        #     gt_filename = r'E:\line_foreign_object_detection\augmented_data\val\annotations_with_foreign\bg_0_0_0_0000000051.png'
+        #     pred_filename = r'E:\line_foreign_object_detection\logs\U_Net_512_2_0.001\val\bg_0_0_0_0000000051_binary.png'
+        #     gt = cv2.imread(gt_filename)[:, :, 0]
+        #     pred = cv2.imread(pred_filename)[:, :, 0]
+        # else:
+        #     gt = np.zeros((200, 200), dtype=np.uint8)
+        #     pred = np.zeros((200, 200), dtype=np.uint8)
+        #     gt[50:100, 50:100] = 1
+        #     gt[110:150, 110:130] = 2
+        #     pred[40:90, 40:90] = 1
+        #     pred[100:140, 90:150] =2
+
+        if os.path.exists(gt_filename) and os.path.exists(pred_filename):
+            gt = cv2.imread(gt_filename)[:, :, 0]
+            pred = cv2.imread(pred_filename)[:, :, 0]
+            H, W = gt.shape[:2]
+            gt_onehot = np.zeros((H, W, len(valid_labels)), dtype=np.float32)
+            pred_onehot = np.zeros((H, W, len(valid_labels)), dtype=np.float32)
+            for i, label in enumerate(valid_labels):
+                gt_onehot[gt == label, i] = 1
+                pred_onehot[pred == label, i] = 1
+
+            tmp_dices = dice_coef_multilabel(gt_onehot, pred_onehot, len(valid_labels))
+            if tmp_dices[0] > 0.5 and tmp_dices[1] > 0.5:
+                lines.append('%s,%f,%f,%f,%f\n' % (prefix, tmp_dices[0], tmp_dices[1],tmp_dices[2], tmp_dices[3]))
+                all_dices.append(tmp_dices)
+                shutil.copyfile(
+                    pred_filename,
+                    os.path.join(good_images_dir, os.path.basename(pred_filename))
+                )
+                shutil.copyfile(
+                    pred_filename.replace('_binary.png', '.png'),
+                    os.path.join(good_images_dir, os.path.basename(pred_filename).replace('_binary.png', '.png'))
+                )
+    if len(lines) > 0:
+        with open(os.path.join(pred_images_dir, 'results.csv'), 'w') as fp:
+            fp.writelines(lines)
+
+        all_dices = np.stack(all_dices, axis=1)
+        print('all_dices')
+        print(all_dices)
+        print(np.mean(all_dices, axis=1))
+
+
 def split_train_val_set():
     from sklearn.cluster import KMeans
     source = 'G:/gddata/all'  # 'E:/%s_list.txt' % subset  # sys.argv[1]
@@ -3487,6 +3555,8 @@ if __name__ == '__main__':
         test_shp()
     elif action == 'test_multiclass_dice':
         test_multiclass_dice()
+    elif action == 'test_multiclass_dice_for_mcseg':
+        test_multiclass_dice_for_mcseg()
     elif action == 'split_train_val_set':
         split_train_val_set()
     elif action == 'test_rotation':
